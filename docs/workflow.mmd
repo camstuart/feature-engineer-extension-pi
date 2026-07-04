@@ -1,0 +1,42 @@
+flowchart TD
+    classDef skill fill:#e3f2fd,stroke:#1565c0,color:#0d47a1
+    classDef gate fill:#fff3e0,stroke:#e65100,color:#bf360c
+    classDef automated fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20
+    classDef paused fill:#ffebee,stroke:#c62828,color:#b71c1c
+    classDef terminal fill:#ede7f6,stroke:#4527a0,color:#311b92
+
+    start(["/feature"]):::terminal --> initCheck{"Project<br/>initialised?"}:::gate
+
+    initCheck -- "no" --> analyse["analyse-codebase"]:::skill
+    analyse -- "/feature approve" --> newExisting{"New or existing<br/>feature?"}:::gate
+    initCheck -- "yes" --> newExisting
+
+    newExisting -- "new" --> mode["requirement mode<br/>direct / vague"]:::gate
+    newExisting -- "existing" --> req
+    mode --> req["req-gathering"]:::skill
+
+    req -- "/feature approve" --> td["tech-design<br/>(2-phase)"]:::skill
+    req -. "/feature reject" .-> req
+
+    td -- "/feature approve" --> tp["test-planning"]:::skill
+    td -. "/feature reject" .-> td
+
+    tp -- "/feature approve" --> ip["impl-planning"]:::skill
+    tp -. "/feature reject" .-> tp
+
+    ip -- "/feature approve" --> tb["test-builder"]:::automated
+    ip -. "/feature reject" .-> ip
+
+    tb --> ib["impl-builder<br/>(orchestrator-driven<br/>QA retry loop)"]:::automated
+    ib -- "QA passes" --> rc["review-completion<br/>(8 passes)"]:::automated
+    ib -- "QA fails 3x" --> paused{"Impl Builder<br/>paused"}:::paused
+    paused -- "/feature approve<br/>(retry as-is)" --> ib
+    paused -- "/feature reject<br/>(→ impl-planning)" --> ip
+
+    rc --> concerns{"Review concerns?<br/>(human-in-the-loop)"}:::gate
+    concerns -- "no" --> gh["github"]:::automated
+    concerns -- "yes" --> severity{"Severity?"}:::gate
+    severity -- "ARCHITECTURAL" --> td
+    severity -- "MINOR" --> ib
+
+    gh --> done(["DONE"]):::terminal

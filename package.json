@@ -1,0 +1,55 @@
+{
+  "name": "feature-engineer",
+  "version": "0.1.0",
+  "description": "Pi extension that orchestrates a spec-driven feature development workflow — requirements through to git commit, with user approval at every design phase.",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "feature-engineer",
+    "spec-driven",
+    "workflow",
+    "tdd"
+  ],
+  "license": "MIT",
+  "author": "Cam",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cam/feature-engineer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cam/feature-engineer/issues"
+  },
+  "homepage": "https://github.com/cam/feature-engineer#readme",
+  "type": "module",
+  "main": ".pi/extensions/feature-engineer/index.ts",
+  "files": [
+    ".pi/extensions/feature-engineer",
+    ".feature-engineer/templates",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "render:workflow": "node scripts/render-workflow.mjs"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.79.0",
+    "@earendil-works/pi-tui": "^0.79.0",
+    "@types/node": "^24.0.0",
+    "puppeteer": "^25.2.1",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  },
+  "packageManager": "pnpm@9.15.9",
+  "pi": {
+    "extensions": [
+      "./.pi/extensions/feature-engineer/index.ts"
+    ]
+  }
+}
