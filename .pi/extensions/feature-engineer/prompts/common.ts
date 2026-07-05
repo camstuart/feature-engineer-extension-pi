@@ -105,6 +105,12 @@ export function revisionFeedbackBlock(feedback: string | null | undefined): stri
   return ["", "## Revision Feedback", "", feedback.trim()];
 }
 
+/** Renders the review-concerns block when present (from a MINOR/ARCH severity-gate routing). */
+export function reviewConcernsBlock(concerns: string | null | undefined): string[] {
+  if (!concerns || concerns.trim().length === 0) return [];
+  return ["", "## Review Concerns To Address", "", concerns.trim()];
+}
+
 /** Renders the existing-artifact block when present. */
 export function existingArtifactBlock(label: string, content: string | null): string[] {
   if (content === null) return [];

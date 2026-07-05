@@ -5,6 +5,7 @@ import {
   exampleBlock,
   interactiveApprovalReminder,
   revisionFeedbackBlock,
+  reviewConcernsBlock,
   skillHeader,
   templatePopulationReminder,
 } from "@/prompts/common";
@@ -119,6 +120,25 @@ describe("prompts/common", () => {
       const text = lines.join("\n");
       expect(text).toContain("## Revision Feedback");
       expect(text).toContain("Add offline mode coverage");
+    });
+  });
+
+  describe("reviewConcernsBlock", () => {
+    it("returns an empty array when concerns is null or undefined", () => {
+      expect(reviewConcernsBlock(null)).toEqual([]);
+      expect(reviewConcernsBlock(undefined)).toEqual([]);
+    });
+
+    it("returns an empty array when concerns is empty or whitespace", () => {
+      expect(reviewConcernsBlock("")).toEqual([]);
+      expect(reviewConcernsBlock("   ")).toEqual([]);
+    });
+
+    it("returns a labelled block when concerns are present", () => {
+      const lines = reviewConcernsBlock("The retry loop never terminates.");
+      const text = lines.join("\n");
+      expect(text).toContain("## Review Concerns To Address");
+      expect(text).toContain("The retry loop never terminates.");
     });
   });
 });

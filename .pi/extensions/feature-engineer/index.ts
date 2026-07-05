@@ -357,6 +357,7 @@ async function handleReject(ctx: CmdCtx, feedback: string | null): Promise<void>
       step: "impl-planning",
       rejectionFeedback: feedback,
       implFailed: false,
+      reviewConcerns: undefined,
     };
     currentState = updated;
     await runImplPlanning(ctx, updated);
@@ -388,6 +389,9 @@ async function handleReject(ctx: CmdCtx, feedback: string | null): Promise<void>
     // impl-planning re-draft later artifacts and the requirement is
     // unchanged, so the version stays.
     requirementVersion: nextRequirementVersion(currentState),
+    // Human rejection feedback is a distinct channel from review concerns
+    // (per the review-quality-loop spec) — always clear on reject.
+    reviewConcerns: undefined,
   };
   currentState = updated;
   await runSkillForStep(ctx, updated);
@@ -589,9 +593,19 @@ async function promptConcernSeverity(ctx: CmdCtx, state: FeatureState): Promise<
     return;
   }
   const severity: Severity = cleaned;
-  // Clear the pending-severity marker on the state going forward.
-  currentState = { ...state, rejectionFeedback: undefined };
-  await advanceTo(ctx, SEVERITY_NEXT_STEP[severity]);
+  const nextStep = SEVERITY_NEXT_STEP[severity];
+  // Bypass `advanceTo` here — it unconditionally clears `reviewConcerns`,
+  // which would defeat the purpose of routing them into the next skill.
+  // This mirrors how `handleReject` builds `updated` directly and calls
+  // `runSkillForStep` for its own state-carrying re-runs.
+  const updated: FeatureState = {
+    ...state,
+    step: nextStep,
+    rejectionFeedback: undefined,
+    reviewConcerns: concerns ?? undefined,
+  };
+  currentState = updated;
+  await runSkillForStep(ctx, updated);
 }
 
 /**
@@ -675,6 +689,7 @@ async function advanceTo(ctx: CmdCtx, nextStep: FeatureStep): Promise<void> {
     ...currentState,
     step: nextStep,
     rejectionFeedback: undefined,
+    reviewConcerns: undefined,
   };
   currentState = updated;
 

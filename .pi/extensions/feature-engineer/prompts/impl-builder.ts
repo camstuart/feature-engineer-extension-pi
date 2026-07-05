@@ -13,6 +13,7 @@ import type { FeatureState } from "../state.js";
 import {
   automatedSkillReminder,
   codeBlock,
+  reviewConcernsBlock,
   skillHeader,
 } from "./common.js";
 
@@ -28,6 +29,13 @@ export interface ImplBuilderPromptInputs {
   /** Maximum orchestrator-driven QA retries. Kept for backward-compat; the
    * orchestrator now enforces this itself. */
   maxRetries: number;
+  /**
+   * Outstanding review concerns routed here by a MINOR severity-gate
+   * decision. When present, the prompt's framing switches from
+   * "execute the plan from Task 1" to "address these concerns against
+   * the existing implementation."
+   */
+  reviewConcerns?: string | null;
 }
 
 export function buildImplBuilderPrompt(inputs: ImplBuilderPromptInputs): string {
@@ -40,12 +48,17 @@ export function buildImplBuilderPrompt(inputs: ImplBuilderPromptInputs): string 
     qaStaticTools,
     qaEngineering,
     state,
+    reviewConcerns,
   } = inputs;
+
+  const hasConcerns = !!reviewConcerns && reviewConcerns.trim().length > 0;
 
   const lines: string[] = [
     skillHeader(state, "Implementation Builder"),
     "",
-    `You will execute the tasks in \`05-technical-plan-implementation.md\` **in order**. Implement each task, commit per \`06-git-strategy.md\`, and run the static QA tools + test runner as a sanity check after each task. The orchestrator will run the QA suite independently after you finish and re-prompt you with the failure output if anything is still red.`,
+    hasConcerns
+      ? `A review pass found concerns with the existing implementation (listed below). Your job is to address each concern directly in the existing code — do NOT re-execute \`05-technical-plan-implementation.md\` from Task 1. The implementation already exists; you are fixing specific issues in it.`
+      : `You will execute the tasks in \`05-technical-plan-implementation.md\` **in order**. Implement each task, commit per \`06-git-strategy.md\`, and run the static QA tools + test runner as a sanity check after each task. The orchestrator will run the QA suite independently after you finish and re-prompt you with the failure output if anything is still red.`,
     "",
     "## Input Files",
     ...codeBlock("03-technical-architecture.md", architecture),
@@ -55,14 +68,24 @@ export function buildImplBuilderPrompt(inputs: ImplBuilderPromptInputs): string 
     ...codeBlock("03-tech-stack.md", techStack),
     ...codeBlock("04-qa-static-tools.md", qaStaticTools),
     ...codeBlock("05-qa-engineering.md", qaEngineering),
+    ...reviewConcernsBlock(reviewConcerns),
     "",
     "## Process",
     "",
-    "1. Read `05-technical-plan-implementation.md` and identify the first task.",
-    "2. Implement that task in the target file(s) listed in the plan. If a test is referenced by name, satisfy it.",
+    ...(hasConcerns
+      ? [
+          "1. Read the concerns listed above. For each, locate the relevant code and make the minimal fix that resolves it.",
+          "2. Do not re-run tasks that are already correctly implemented — only touch what a concern identifies.",
+        ]
+      : [
+          "1. Read `05-technical-plan-implementation.md` and identify the first task.",
+          "2. Implement that task in the target file(s) listed in the plan. If a test is referenced by name, satisfy it.",
+        ]),
     "3. Optionally run the static QA commands from `04-qa-static-tools.md` and the test runner as a sanity check; the orchestrator re-runs them authoritatively after you finish.",
     "4. Commit the task per `06-git-strategy.md` (commit format, branch conventions, frequency).",
-    "5. Move to the next task and repeat from step 2.",
+    hasConcerns
+      ? "5. Once every listed concern is addressed, proceed to the final QA pass below."
+      : "5. Move to the next task and repeat from step 2.",
     "6. When all tasks are complete, run the full QA suite one final time to confirm green.",
     "",
     "## Blocked-Task Behaviour",
@@ -84,7 +107,7 @@ export function buildImplBuilderPrompt(inputs: ImplBuilderPromptInputs): string 
     "",
     ...automatedSkillReminder(),
     "",
-    "Begin with Task 1.",
+    hasConcerns ? "Begin by addressing the concerns above." : "Begin with Task 1.",
   ];
 
   return lines.join("\n");
