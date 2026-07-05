@@ -1,12 +1,12 @@
 /**
  * Review Completion SKILL runner.
  *
- * Automated skill: runs 8 sequential review passes with deterministic
+ * Automated skill: runs 5 sequential review passes with deterministic
  * compaction between them. After all passes finish, the orchestrator is
  * notified via `onComplete` so it can route to github (no concerns) or
  * concern-severity (concerns found).
  *
- * The runner drives all 8 passes via `intermediateSteps`, with compaction
+ * The runner drives all 5 passes via `intermediateSteps`, with compaction
  * between them. The LLM is not trusted to call `ctx.compact` itself.
  *
  * Each pass (after the first) sees the current `review-concerns-to-address.md`
@@ -19,6 +19,7 @@ import {
   readArtifact,
   readConfigFile,
   readTemplate,
+  rotateConcernsFileIfExists,
 } from "../files.js";
 import { artifactTemplatePath, reviewConcernsPath } from "../paths.js";
 import {
@@ -35,7 +36,6 @@ const REVIEW_FILE_MAP: Record<string, "config" | "artifact"> = {
   "01-actors.md": "config",
   "02-structure.md": "config",
   "03-tech-stack.md": "config",
-  "04-qa-static-tools.md": "config",
   "05-qa-engineering.md": "config",
   "06-git-strategy.md": "config",
   "01-requirement.md": "artifact",
@@ -79,12 +79,60 @@ function readConcernsFile(cwd: string, id: number, slug: string): string | null 
   }
 }
 
+/**
+ * Builds the intermediate steps for review passes 2..N.
+ *
+ * Each step's `prompt` is a lazy closure, not a pre-computed string. The
+ * closure reads the concerns file at the moment the runner is about to
+ * send it (see `driveIntermediateSteps` in `runner.ts`), NOT when this
+ * array is constructed. This is what allows pass 2's prompt to see
+ * concerns pass 1 appended, pass 3's prompt to see pass 1 + 2's concerns,
+ * and so on — building the closures eagerly here would freeze every pass
+ * at whatever the concerns file contained before pass 1 even ran.
+ *
+ * Exported for testing: callers can construct a step, mutate the concerns
+ * file on disk, then invoke `step.prompt()` and confirm the mutation is
+ * reflected — proving the read happens at call time.
+ */
+export function buildReviewIntermediateSteps(params: {
+  cwd: string;
+  state: FeatureState;
+  restPasses: readonly (typeof REVIEW_PASSES)[number][];
+  fileContents: Record<string, string>;
+  reviewFilePath: string;
+  template: string;
+}): IntermediateStep[] {
+  const { cwd, state, restPasses, fileContents, reviewFilePath, template } = params;
+  return restPasses.map((pass) => {
+    return {
+      prompt: () => {
+        const priorConcerns = readConcernsFile(cwd, state.featureId, state.featureSlug);
+        return buildReviewPassPrompt({
+          pass,
+          fileContents,
+          priorConcerns,
+          state,
+          reviewConcernsPath: reviewFilePath,
+          template,
+        });
+      },
+      compactInstructions: `Summarise only: review pass ID "${pass.id}" completed, concerns written to ${reviewFilePath}. Preserve the current count of non-empty concern sections.`,
+    };
+  });
+}
+
 export async function runReviewCompletion(
   ctx: ExtensionCommandContext,
   state: FeatureState,
   options: AutomatedSkillOptions = {},
 ): Promise<{ cancelled: boolean }> {
   const cwd = ctx.cwd;
+
+  // Rotate any leftover concerns file from a previous review cycle before
+  // pass 1 runs, so the new cycle always starts from a clean, unversioned
+  // file and downstream parsing never mixes cycles together.
+  rotateConcernsFileIfExists(cwd, state.featureId, state.featureSlug);
+
   const template = readTemplate("artifact", "review-concerns");
   if (template === null) {
     ctx.ui.notify(
@@ -105,7 +153,7 @@ export async function runReviewCompletion(
 
   const reviewFilePath = reviewConcernsPath(cwd, state.featureId, state.featureSlug);
 
-  // Pass 1 is the initial prompt; passes 2-8 are intermediate steps driven
+  // Pass 1 is the initial prompt; the rest are intermediate steps driven
   // by the runner with deterministic compaction between them.
   const [firstPass, ...restPasses] = REVIEW_PASSES;
   if (firstPass === undefined) {
@@ -120,20 +168,13 @@ export async function runReviewCompletion(
     reviewConcernsPath: reviewFilePath,
     template,
   });
-  const intermediateSteps: IntermediateStep[] = restPasses.map((pass) => {
-    const priorConcerns = readConcernsFile(cwd, state.featureId, state.featureSlug);
-    const prompt = buildReviewPassPrompt({
-      pass,
-      fileContents,
-      priorConcerns,
-      state,
-      reviewConcernsPath: reviewFilePath,
-      template,
-    });
-    return {
-      prompt,
-      compactInstructions: `Summarise only: review pass ID "${pass.id}" completed, concerns written to ${reviewFilePath}. Preserve the current count of non-empty concern sections.`,
-    };
+  const intermediateSteps: IntermediateStep[] = buildReviewIntermediateSteps({
+    cwd,
+    state,
+    restPasses,
+    fileContents,
+    reviewFilePath,
+    template,
   });
 
   return startSkillSession(ctx, { ...state, rejectionFeedback: undefined }, initialPrompt, {
@@ -144,7 +185,7 @@ export async function runReviewCompletion(
       );
     },
     intermediateSteps,
-    // Final compaction: after the 8th pass writes the last concern, compact
+    // Final compaction: after the last pass writes the last concern, compact
     // before the orchestrator transitions to the human-in-the-loop
     // Review Concerns gate. Satisfies PRD §11 rule 6.
     finalCompactInstructions: `Summarise only: all ${REVIEW_PASSES.length} review passes complete. Concerns written to ${reviewFilePath}. Preserve the count of non-empty concern sections and the highest severity seen. The orchestrator will read the concerns file and prompt the user.`,

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -9,6 +9,7 @@ import {
   readRequirementFirstLine,
   readTemplate,
   readAllTemplates,
+  rotateConcernsFileIfExists,
 } from "@/files";
 import {
   artifactTemplatePath,
@@ -187,6 +188,86 @@ describe("files", () => {
       const project = mkdtempSync(join(tmpdir(), "fe-proj-"));
       try {
         expect(readRequirementFirstLine(project, 1, "foo")).toBeNull();
+      } finally {
+        rmSync(project, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("rotateConcernsFileIfExists", () => {
+    it("is a no-op when the active concerns file does not exist", () => {
+      const project = mkdtempSync(join(tmpdir(), "fe-proj-"));
+      try {
+        const dir = join(project, ".feature-engineer", "feature-001-foo");
+        mkdirSync(dir, { recursive: true });
+        expect(() => rotateConcernsFileIfExists(project, 1, "foo")).not.toThrow();
+        // No versioned file should have been created either.
+        expect(existsSync(join(dir, "06-review-concerns.v1.md"))).toBe(false);
+      } finally {
+        rmSync(project, { recursive: true, force: true });
+      }
+    });
+
+    it("renames the active file to v1 on first rotation", () => {
+      const project = mkdtempSync(join(tmpdir(), "fe-proj-"));
+      try {
+        const dir = join(project, ".feature-engineer", "feature-001-foo");
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "06-review-concerns-to-address.md"), "## cycle 1 concerns", "utf8");
+
+        rotateConcernsFileIfExists(project, 1, "foo");
+
+        expect(existsSync(join(dir, "06-review-concerns-to-address.md"))).toBe(false);
+        expect(readFileSync(join(dir, "06-review-concerns.v1.md"), "utf8")).toBe(
+          "## cycle 1 concerns",
+        );
+      } finally {
+        rmSync(project, { recursive: true, force: true });
+      }
+    });
+
+    it("rotates a second cycle's file to v2, preserving v1", () => {
+      const project = mkdtempSync(join(tmpdir(), "fe-proj-"));
+      try {
+        const dir = join(project, ".feature-engineer", "feature-001-foo");
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "06-review-concerns-to-address.md"), "## cycle 1 concerns", "utf8");
+        rotateConcernsFileIfExists(project, 1, "foo");
+
+        // Simulate a second review cycle writing a fresh active file.
+        writeFileSync(join(dir, "06-review-concerns-to-address.md"), "## cycle 2 concerns", "utf8");
+        rotateConcernsFileIfExists(project, 1, "foo");
+
+        expect(readFileSync(join(dir, "06-review-concerns.v1.md"), "utf8")).toBe(
+          "## cycle 1 concerns",
+        );
+        expect(readFileSync(join(dir, "06-review-concerns.v2.md"), "utf8")).toBe(
+          "## cycle 2 concerns",
+        );
+        expect(existsSync(join(dir, "06-review-concerns-to-address.md"))).toBe(false);
+      } finally {
+        rmSync(project, { recursive: true, force: true });
+      }
+    });
+
+    it("finds the lowest unused N even if v1 already exists from elsewhere", () => {
+      const project = mkdtempSync(join(tmpdir(), "fe-proj-"));
+      try {
+        const dir = join(project, ".feature-engineer", "feature-001-foo");
+        mkdirSync(dir, { recursive: true });
+        // Pre-seed a v1 file (e.g. from a manual copy) without going through
+        // rotation, then rotate a fresh active file — it must not clobber v1.
+        writeFileSync(join(dir, "06-review-concerns.v1.md"), "pre-existing v1", "utf8");
+        writeFileSync(join(dir, "06-review-concerns-to-address.md"), "new active concerns", "utf8");
+
+        rotateConcernsFileIfExists(project, 1, "foo");
+
+        expect(readFileSync(join(dir, "06-review-concerns.v1.md"), "utf8")).toBe(
+          "pre-existing v1",
+        );
+        expect(readFileSync(join(dir, "06-review-concerns.v2.md"), "utf8")).toBe(
+          "new active concerns",
+        );
       } finally {
         rmSync(project, { recursive: true, force: true });
       }
