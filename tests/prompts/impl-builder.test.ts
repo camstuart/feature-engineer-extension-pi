@@ -137,4 +137,35 @@ describe("prompts/impl-builder retry", () => {
     });
     expect(prompt).toMatch(/never edit the test/i);
   });
+
+  it("keeps the generic QA-failure framing when reviewConcerns is absent", () => {
+    const prompt = buildImplBuilderRetryPrompt({
+      state: BASE_STATE,
+      attempt: 2,
+      maxAttempts: 3,
+      failureFeedback: "x",
+      implPlan: IMPL_PLAN,
+    });
+    expect(prompt).toContain(
+      "A previous attempt at implementing this feature left the QA suite failing.",
+    );
+    expect(prompt).not.toContain("## Review Concerns To Address");
+  });
+
+  it("threads reviewConcerns into the retry prompt and switches the framing", () => {
+    const prompt = buildImplBuilderRetryPrompt({
+      state: BASE_STATE,
+      attempt: 2,
+      maxAttempts: 3,
+      failureFeedback: "lint failed: 3 errors in foo.ts",
+      implPlan: IMPL_PLAN,
+      reviewConcerns: "The error handler swallows exceptions silently.",
+    });
+    expect(prompt).toContain("## Review Concerns To Address");
+    expect(prompt).toContain("The error handler swallows exceptions silently.");
+    expect(prompt).toContain(
+      "A previous attempt at fixing the review concerns below left the QA suite failing.",
+    );
+    expect(prompt).toMatch(/still addressing the concerns listed below/i);
+  });
 });

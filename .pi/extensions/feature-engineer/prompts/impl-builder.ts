@@ -124,6 +124,13 @@ export interface ImplBuilderRetryPromptInputs {
   /** The original implementation plan (re-injected for context after
    *  a fresh session starts). */
   implPlan: string;
+  /**
+   * Outstanding review concerns routed here by a MINOR severity-gate
+   * decision. When present, this retry is still about fixing those
+   * concerns — the previous concerns-fix attempt also introduced a QA
+   * regression that must be fixed alongside the concerns.
+   */
+  reviewConcerns?: string | null;
 }
 
 /**
@@ -132,14 +139,17 @@ export interface ImplBuilderRetryPromptInputs {
  * attempt's QA pass as primary input.
  */
 export function buildImplBuilderRetryPrompt(inputs: ImplBuilderRetryPromptInputs): string {
-  const { state, attempt, maxAttempts, failureFeedback, implPlan } = inputs;
+  const { state, attempt, maxAttempts, failureFeedback, implPlan, reviewConcerns } = inputs;
   const isFinal = attempt === maxAttempts;
+  const hasConcerns = !!reviewConcerns && reviewConcerns.trim().length > 0;
   const lines: string[] = [
     skillHeader(state, `Implementation Builder — Retry ${attempt}/${maxAttempts}`),
     "",
     `Attempt ${attempt} of ${maxAttempts}${isFinal ? " (FINAL — no further retries)" : ""}.`,
     "",
-    "A previous attempt at implementing this feature left the QA suite failing. Your job on this attempt is to make every QA tool pass without editing tests or weakening assertions. Do not re-draft the architecture or the plan; the prior implementation is on disk and you are working against the same `05-technical-plan-implementation.md`.",
+    hasConcerns
+      ? "A previous attempt at fixing the review concerns below left the QA suite failing. Your job on this retry is to make every QA tool pass WITHOUT losing the concern fixes and without re-executing `05-technical-plan-implementation.md` from scratch — the implementation already exists; you are still addressing the concerns listed below, and your previous attempt introduced a QA regression you now need to fix too."
+      : "A previous attempt at implementing this feature left the QA suite failing. Your job on this attempt is to make every QA tool pass without editing tests or weakening assertions. Do not re-draft the architecture or the plan; the prior implementation is on disk and you are working against the same `05-technical-plan-implementation.md`.",
     "",
     "## Previous Attempt's QA Failures",
     "",
@@ -148,6 +158,7 @@ export function buildImplBuilderRetryPrompt(inputs: ImplBuilderRetryPromptInputs
     "```",
     failureFeedback,
     "```",
+    ...reviewConcernsBlock(reviewConcerns),
     "",
     "## Implementation Plan (baseline)",
     "",

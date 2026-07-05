@@ -124,6 +124,7 @@ export async function runImplBuilder(
           maxAttempts: maxRetries,
           failureFeedback: formatFailureFeedback(lastFailures ?? []),
           implPlan,
+          reviewConcerns: state.reviewConcerns ?? null,
         })
       : prompt;
 

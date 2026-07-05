@@ -37,10 +37,10 @@
 
 ## 6. Concerns feedback into fix skills
 
-- [ ] 6.1 Add `reviewConcerns: string | null` input to `buildImplBuilderPrompt` and `buildTechDesignPhase1Prompt`/`Phase2Prompt`; render as `## Review Concerns To Address`; impl-builder prompt switches from "Begin with Task 1" to concern-addressing framing when present
-- [ ] 6.2 In `index.ts` severity routing, read the active concerns file and pass it to the routed skill runner; thread through `skills/impl-builder.ts` and `skills/tech-design.ts`
-- [ ] 6.3 Ensure `/feature reject` paths pass `reviewConcerns: null` (channels stay distinct)
-- [ ] 6.4 Update `tests/prompts/impl-builder.test.ts` and `tests/prompts/tech-design.test.ts`
+- [x] 6.1 Add `reviewConcerns: string | null` input to `buildImplBuilderPrompt` and `buildTechDesignPhase1Prompt`/`Phase2Prompt`; render as `## Review Concerns To Address`; impl-builder prompt switches from "Begin with Task 1" to concern-addressing framing when present
+- [x] 6.2 In `index.ts` severity routing, read the active concerns file and pass it to the routed skill runner; thread through `skills/impl-builder.ts` and `skills/tech-design.ts`
+- [x] 6.3 Ensure `/feature reject` paths pass `reviewConcerns: null` (channels stay distinct)
+- [x] 6.4 Update `tests/prompts/impl-builder.test.ts` and `tests/prompts/tech-design.test.ts`
 
 ## 7. Deterministic approve gate
 
