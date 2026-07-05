@@ -29,11 +29,11 @@
 
 ## 5. Severity gate: parsing, recommendation, clean auto-advance
 
-- [ ] 5.1 Add concern parsing to `routing.ts` (or `qa.ts`-adjacent module): extract `[ARCH]`/`[MINOR]` tags with tolerant regex; untagged bullets count as `[MINOR]`; expose counts and recommended route
-- [ ] 5.2 In `index.ts`, after review completion: zero concerns → notify "review clean" and `advanceTo("github")`, skipping the gate; otherwise show the gate with concern counts and the recommended option pre-selected/first
-- [ ] 5.3 Update `promptConcernSeverity` to present the recommendation while allowing override
-- [ ] 5.4 Update `summariseConcerns` for the new tag format and untagged-count reporting
-- [ ] 5.5 Update `tests/routing.test.ts` and add gate-summary tests
+- [x] 5.1 Add concern parsing to `routing.ts` (or `qa.ts`-adjacent module): extract `[ARCH]`/`[MINOR]` tags with tolerant regex; untagged bullets count as `[MINOR]`; expose counts and recommended route
+- [x] 5.2 In `index.ts`, after review completion: zero concerns → notify "review clean" and `advanceTo("github")`, skipping the gate; otherwise show the gate with concern counts and the recommended option pre-selected/first
+- [x] 5.3 Update `promptConcernSeverity` to present the recommendation while allowing override
+- [x] 5.4 Update `summariseConcerns` for the new tag format and untagged-count reporting
+- [x] 5.5 Update `tests/routing.test.ts` and add gate-summary tests
 
 ## 6. Concerns feedback into fix skills
 

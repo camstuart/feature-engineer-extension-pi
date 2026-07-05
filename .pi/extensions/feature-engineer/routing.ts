@@ -67,6 +67,107 @@ export function isValidSeverity(value: unknown): value is Severity {
   return value === "ARCHITECTURAL" || value === "MINOR";
 }
 
+/**
+ * Tolerant tag regex for a single concern bullet line.
+ *
+ * Matches a leading `-` or `*` bullet marker followed by an `[ARCH]` or
+ * `[MINOR]` tag (any case). Whitespace between the marker and the tag is
+ * optional so `- [ARCH]` and `-[arch]` both match.
+ */
+const CONCERN_TAG_RE = /^[-*]\s*\[(ARCH|MINOR)\]/i;
+
+/** Exact text (after trimming) used to mark a section as having no concerns. */
+const NO_CONCERNS_LINE = "- No concerns.";
+
+export interface ConcernCounts {
+  /** Number of bullets tagged `[ARCH]` (any case). */
+  archCount: number;
+  /** Number of bullets explicitly tagged `[MINOR]` (any case). */
+  minorCount: number;
+  /** Bulleted concern lines with no recognisable tag — treated as MINOR for routing. */
+  untaggedCount: number;
+  /** archCount + minorCount + untaggedCount. */
+  total: number;
+  /** ARCHITECTURAL when any [ARCH] concern exists, otherwise MINOR. */
+  recommendedSeverity: Severity;
+}
+
+/**
+ * Parses the active review-concerns file content into severity counts.
+ *
+ * Rules:
+ *   - `content === null` (no concerns file found) → all zeros, and
+ *     `recommendedSeverity` defaults to "MINOR" (arbitrary — there's
+ *     nothing to recommend from, but callers need a Severity value).
+ *   - `- No concerns.` lines are not concerns and are ignored.
+ *   - Bullet lines (`-` or `* ` marker) that aren't the "No concerns" line
+ *     are tagged via a tolerant, case-insensitive `[ARCH]`/`[MINOR]` regex.
+ *     Bullets with no recognisable tag count as `untaggedCount` (and are
+ *     included in `total`, routed as MINOR).
+ *   - Non-bullet lines (headings, prose, blank lines) are ignored.
+ */
+export function parseConcernCounts(content: string | null): ConcernCounts {
+  if (content === null) {
+    return {
+      archCount: 0,
+      minorCount: 0,
+      untaggedCount: 0,
+      total: 0,
+      recommendedSeverity: "MINOR",
+    };
+  }
+
+  let archCount = 0;
+  let minorCount = 0;
+  let untaggedCount = 0;
+
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line.length === 0) continue;
+    if (line === NO_CONCERNS_LINE) continue;
+    if (!line.startsWith("-") && !line.startsWith("*")) continue;
+
+    const match = CONCERN_TAG_RE.exec(line);
+    if (!match) {
+      untaggedCount += 1;
+      continue;
+    }
+    const tag = match[1]?.toUpperCase();
+    if (tag === "ARCH") archCount += 1;
+    else if (tag === "MINOR") minorCount += 1;
+  }
+
+  const total = archCount + minorCount + untaggedCount;
+  return {
+    archCount,
+    minorCount,
+    untaggedCount,
+    total,
+    recommendedSeverity: archCount > 0 ? "ARCHITECTURAL" : "MINOR",
+  };
+}
+
+/**
+ * Renders a one-line human-readable summary of parsed concern counts, for
+ * display at the review-concerns gate and the concern-severity prompt.
+ *
+ * Pure and unit-testable — kept here (rather than inline in index.ts)
+ * because it has no UI/IO dependency, unlike the rest of index.ts's
+ * orchestration glue.
+ */
+export function formatConcernSummary(counts: ConcernCounts): string {
+  if (counts.total === 0) return "No concerns recorded — review is clean.";
+  const minorTotal = counts.minorCount + counts.untaggedCount;
+  const untaggedNote =
+    counts.untaggedCount > 0
+      ? ` (${counts.untaggedCount} untagged, counted as MINOR)`
+      : "";
+  return (
+    `${counts.total} concern(s) — ${counts.archCount} ARCH, ${minorTotal} MINOR${untaggedNote}. ` +
+    `Recommended route: ${counts.recommendedSeverity}.`
+  );
+}
+
 export interface ParsedRejectArgs {
   /** Trimmed feedback text, or null when empty. */
   feedback: string | null;

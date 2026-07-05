@@ -28,8 +28,10 @@ import {
 } from "./paths.js";
 import { latestState } from "./persistence.js";
 import {
+  formatConcernSummary,
   isRejectionSource,
   isValidSeverity,
+  parseConcernCounts,
   parseRequirementMode,
   parseSubcommand,
   REQUIREMENT_MODE_CHOICES,
@@ -560,9 +562,16 @@ async function promptConcernSeverity(ctx: CmdCtx, state: FeatureState): Promise<
     return;
   }
 
+  const concerns = readConcernsContent(state);
+  const counts = parseConcernCounts(concerns);
+  const recommended = counts.recommendedSeverity;
+  const other: Severity = recommended === "ARCHITECTURAL" ? "MINOR" : "ARCHITECTURAL";
+
+  ctx.ui.notify(`Feature Engineer: ${formatConcernSummary(counts)}`, "info");
+
   const choice = await ctx.ui.select(
     "Review concerns found. Severity?",
-    ["ARCHITECTURAL", "MINOR"],
+    [`${recommended} (recommended)`, other],
   );
   if (choice === undefined) {
     ctx.ui.notify(
@@ -571,11 +580,12 @@ async function promptConcernSeverity(ctx: CmdCtx, state: FeatureState): Promise<
     );
     return;
   }
-  if (!isValidSeverity(choice)) {
+  const cleaned = choice.replace(/\s*\(recommended\)$/, "");
+  if (!isValidSeverity(cleaned)) {
     ctx.ui.notify(`Feature Engineer: invalid severity "${choice}".`, "error");
     return;
   }
-  const severity: Severity = choice;
+  const severity: Severity = cleaned;
   // Clear the pending-severity marker on the state going forward.
   currentState = { ...state, rejectionFeedback: undefined };
   await advanceTo(ctx, SEVERITY_NEXT_STEP[severity]);
@@ -643,21 +653,7 @@ async function promptReviewConcernsGate(ctx: CmdCtx, state: FeatureState): Promi
  */
 function summariseConcerns(content: string | null): string {
   if (content === null) return "no concerns file found.";
-  const lines = content.split(/\r?\n/);
-  let concerns = 0;
-  let noConcernsLines = 0;
-  for (const line of lines) {
-    const t = line.trim();
-    if (t.length === 0) continue;
-    if (t === "- No concerns.") {
-      noConcernsLines += 1;
-      continue;
-    }
-    if (t.startsWith("- ") || t.startsWith("* ")) concerns += 1;
-  }
-  if (concerns === 0 && noConcernsLines === 0) return "no concerns recorded.";
-  if (concerns === 0) return `${noConcernsLines} section(s) explicitly marked as no concerns.`;
-  return `${concerns} concern(s) across ${noConcernsLines + concerns} section(s).`;
+  return formatConcernSummary(parseConcernCounts(content));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -737,8 +733,17 @@ async function runSkillForStep(ctx: CmdCtx, state: FeatureState): Promise<void> 
       // auto-decide based on file content.
       await runReviewCompletion(ctx, state, {
         onComplete: async (completedState) => {
+          const concerns = readConcernsContent(completedState);
+          const counts = parseConcernCounts(concerns);
+          if (counts.total === 0) {
+            ctx.ui.notify(
+              `Feature Engineer: review clean for ${padIdFor(completedState.featureId)} — ${completedState.featureSlug}. Advancing to GitHub.`,
+              "info",
+            );
+            await advanceTo(ctx, "github");
+            return;
+          }
           await advanceTo(ctx, "review-concerns-gate");
-          void completedState; // state is read inside the gate handler.
         },
       });
       return;

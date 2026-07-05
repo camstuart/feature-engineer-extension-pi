@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatConcernSummary,
+  parseConcernCounts,
   REQUIREMENT_MODE_CHOICES,
   REQUIREMENT_MODE_DIRECT_LABEL,
   REQUIREMENT_MODE_VAGUE_LABEL,
@@ -148,6 +150,121 @@ describe("routing", () => {
     it("falls back to run for unknown subcommand", () => {
       expect(parseSubcommand("foo")).toEqual({ kind: "run" });
       expect(parseSubcommand("something else")).toEqual({ kind: "run" });
+    });
+  });
+
+  describe("parseConcernCounts", () => {
+    it("returns all zeros and recommends MINOR for null content", () => {
+      const counts = parseConcernCounts(null);
+      expect(counts).toEqual({
+        archCount: 0,
+        minorCount: 0,
+        untaggedCount: 0,
+        total: 0,
+        recommendedSeverity: "MINOR",
+      });
+    });
+
+    it("treats '- No concerns.' lines as zero concerns across multiple sections", () => {
+      const content = [
+        "## Architecture",
+        "- No concerns.",
+        "",
+        "## Style",
+        "- No concerns.",
+      ].join("\n");
+      const counts = parseConcernCounts(content);
+      expect(counts.total).toBe(0);
+      expect(counts.archCount).toBe(0);
+      expect(counts.minorCount).toBe(0);
+      expect(counts.untaggedCount).toBe(0);
+      expect(counts.recommendedSeverity).toBe("MINOR");
+    });
+
+    it("counts one ARCH and three MINOR and recommends ARCHITECTURAL", () => {
+      const content = [
+        "- [ARCH] Coupling is too tight → extract an interface",
+        "- [MINOR] Rename variable → use camelCase",
+        "- [MINOR] Missing comment → add one",
+        "- [MINOR] Typo in log message → fix spelling",
+      ].join("\n");
+      const counts = parseConcernCounts(content);
+      expect(counts.archCount).toBe(1);
+      expect(counts.minorCount).toBe(3);
+      expect(counts.untaggedCount).toBe(0);
+      expect(counts.total).toBe(4);
+      expect(counts.recommendedSeverity).toBe("ARCHITECTURAL");
+    });
+
+    it("recommends MINOR when only MINOR concerns exist", () => {
+      const content = [
+        "- [MINOR] Rename variable → use camelCase",
+        "- [MINOR] Missing comment → add one",
+      ].join("\n");
+      const counts = parseConcernCounts(content);
+      expect(counts.archCount).toBe(0);
+      expect(counts.minorCount).toBe(2);
+      expect(counts.recommendedSeverity).toBe("MINOR");
+    });
+
+    it("counts an untagged bullet as untagged, included in total, and still routes MINOR", () => {
+      const content = "- The error message is unclear → reword it";
+      const counts = parseConcernCounts(content);
+      expect(counts.untaggedCount).toBe(1);
+      expect(counts.archCount).toBe(0);
+      expect(counts.minorCount).toBe(0);
+      expect(counts.total).toBe(1);
+      expect(counts.recommendedSeverity).toBe("MINOR");
+    });
+
+    it("recognises tags case-insensitively", () => {
+      const content = ["- [arch] lowercase tag", "- [Minor] mixed case tag"].join("\n");
+      const counts = parseConcernCounts(content);
+      expect(counts.archCount).toBe(1);
+      expect(counts.minorCount).toBe(1);
+      expect(counts.recommendedSeverity).toBe("ARCHITECTURAL");
+    });
+
+    it("ignores heading lines and blank lines", () => {
+      const content = [
+        "## Architecture",
+        "",
+        "## Style",
+        "",
+        "- [MINOR] a real concern",
+        "",
+      ].join("\n");
+      const counts = parseConcernCounts(content);
+      expect(counts.total).toBe(1);
+      expect(counts.minorCount).toBe(1);
+    });
+
+    it("also accepts '*' bullet markers", () => {
+      const content = "* [ARCH] star-bulleted concern";
+      const counts = parseConcernCounts(content);
+      expect(counts.archCount).toBe(1);
+      expect(counts.total).toBe(1);
+    });
+  });
+
+  describe("formatConcernSummary", () => {
+    it("reports a clean summary for zero concerns", () => {
+      const summary = formatConcernSummary(parseConcernCounts(null));
+      expect(summary.toLowerCase()).toContain("no concerns");
+    });
+
+    it("reports counts and recommendation for mixed concerns", () => {
+      const content = [
+        "- [ARCH] Coupling is too tight → extract an interface",
+        "- [MINOR] Rename variable → use camelCase",
+        "- The error message is unclear → reword it",
+      ].join("\n");
+      const summary = formatConcernSummary(parseConcernCounts(content));
+      expect(summary).toContain("3 concern(s)");
+      expect(summary).toContain("1 ARCH");
+      expect(summary).toContain("2 MINOR");
+      expect(summary).toContain("1 untagged");
+      expect(summary).toContain("Recommended route: ARCHITECTURAL");
     });
   });
 });
