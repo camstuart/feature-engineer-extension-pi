@@ -7,6 +7,9 @@
 - Branch from `main`. Rebase onto `main` before merging to keep history linear.
 - One branch per feature. Do not stack unrelated features on the same branch.
 
+Branch pattern: `feature/{slug}`
+Base branch: `main`
+
 ## Commit Format
 
 Conventional Commits. Format:
@@ -25,6 +28,8 @@ Conventional Commits. Format:
 - **Body**: wrap at 72 columns; explain *why*, not *what*.
 - **Breaking changes**: add `BREAKING CHANGE:` in the footer and use `!` after the type/scope (`feat(api)!: rename fe-state schema`).
 - Example: `feat(persistence): validate fe-state on read with stable error messages`.
+
+Commit pattern: `^(feat|fix|docs|refactor|test|chore|perf|build|ci)(\([a-z0-9-]+\))?!?: .+`
 
 ## Commit Frequency
 

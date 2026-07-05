@@ -21,6 +21,11 @@ import {
   readTemplate,
   rotateConcernsFileIfExists,
 } from "../files.js";
+import {
+  parseGitStrategyConfig,
+  runGitStrategyChecks,
+  writeGitStrategyFindings,
+} from "../git-checks.js";
 import { artifactTemplatePath, reviewConcernsPath } from "../paths.js";
 import {
   buildReviewPassPrompt,
@@ -190,8 +195,23 @@ export async function runReviewCompletion(
     // Review Concerns gate. Satisfies PRD §11 rule 6.
     finalCompactInstructions: `Summarise only: all ${REVIEW_PASSES.length} review passes complete. Concerns written to ${reviewFilePath}. Preserve the count of non-empty concern sections and the highest severity seen. The orchestrator will read the concerns file and prompt the user.`,
   }).then(async (result) => {
-    if (!result.cancelled && options.onComplete) {
-      await options.onComplete(state);
+    if (!result.cancelled) {
+      // Deterministic git-strategy checks run after the LLM passes
+      // complete, before onComplete routes to the concerns gate — so any
+      // git-strategy concerns are already merged into the file by the time
+      // the gate evaluates it.
+      const gitStrategyContent = readConfigFile(cwd, "git-strategy");
+      if (gitStrategyContent !== null) {
+        const config = parseGitStrategyConfig(gitStrategyContent);
+        const findings = runGitStrategyChecks(cwd, config, {
+          slug: state.featureSlug,
+          id: state.featureId,
+        });
+        writeGitStrategyFindings(reviewFilePath, findings);
+      }
+      if (options.onComplete) {
+        await options.onComplete(state);
+      }
     }
     return result;
   });

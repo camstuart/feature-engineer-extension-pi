@@ -5,6 +5,9 @@
 <!-- AI: How branches are named and when to create them.
 Example: "Feature branches: feature/<slug>. Branch from main. One branch per feature." -->
 
+Branch pattern: `feature/{slug}`
+<!-- AI: The orchestrator parses this line to check the current branch name deterministically. Substitutions available: {slug}, {id}. Keep the default above unless this project uses a different convention. -->
+
 ## Commit Format
 <!-- AI: Commit message format with example.
 Example: "feat(<scope>): <description>" — follow Conventional Commits. -->
