@@ -47,7 +47,7 @@ export const REVIEW_PASSES: readonly ReviewPass[] = [
     label: "Requirements Coverage",
     files: ["01-requirement.md", "01-actors.md"],
     question:
-      "Is every functional and non-functional requirement in 01-requirement.md satisfied by the implementation, AND does the implementation cover every user story for every actor in 01-actors.md, broken down correctly per actor? Are any requirements, actors, or stories missing or under-implemented?",
+      "Is every functional and non-functional requirement in 01-requirement.md satisfied by the implementation? Separately, does the implementation cover every user story for every actor in 01-actors.md, broken down correctly per actor, and are any requirements, actors, or stories missing or under-implemented?",
     instructions:
       "Enumerate every numbered requirement in 01-requirement.md and verify each is satisfied by a test or concrete code path. Separately, cross-reference each actor in 01-actors.md against its user stories and the implementation surface (test plan, architecture, code) to confirm every actor's stories are covered. Note any gap — whether a missing requirement, actor, or story — in the concerns file under the `## Requirements Coverage` heading.",
   },
