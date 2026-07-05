@@ -181,6 +181,22 @@ describe("routing", () => {
       expect(counts.recommendedSeverity).toBe("MINOR");
     });
 
+    it("treats '- no concerns.' (lowercase) lines as zero concerns", () => {
+      const content = [
+        "## Architecture",
+        "- no concerns.",
+        "",
+        "## Style",
+        "- NO CONCERNS.",
+      ].join("\n");
+      const counts = parseConcernCounts(content);
+      expect(counts.total).toBe(0);
+      expect(counts.archCount).toBe(0);
+      expect(counts.minorCount).toBe(0);
+      expect(counts.untaggedCount).toBe(0);
+      expect(counts.recommendedSeverity).toBe("MINOR");
+    });
+
     it("counts one ARCH and three MINOR and recommends ARCHITECTURAL", () => {
       const content = [
         "- [ARCH] Coupling is too tight → extract an interface",

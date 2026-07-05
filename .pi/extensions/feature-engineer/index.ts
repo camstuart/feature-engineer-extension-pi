@@ -580,6 +580,9 @@ async function promptConcernSeverity(ctx: CmdCtx, state: FeatureState): Promise<
     );
     return;
   }
+  // The recommended option is displayed with a " (recommended)" UI suffix
+  // (see the `select` call above); strip it to recover the underlying
+  // `Severity` value before validating.
   const cleaned = choice.replace(/\s*\(recommended\)$/, "");
   if (!isValidSeverity(cleaned)) {
     ctx.ui.notify(`Feature Engineer: invalid severity "${choice}".`, "error");
@@ -594,9 +597,12 @@ async function promptConcernSeverity(ctx: CmdCtx, state: FeatureState): Promise<
 /**
  * Human-in-the-loop gate after Review Completion.
  *
- * The orchestrator does NOT auto-decide based on file content. The user
- * is shown a summary of `06-review-concerns-to-address.md` (line count of
- * non-empty concern entries) and explicitly chooses:
+ * This gate is only reached when `06-review-concerns-to-address.md` has at
+ * least one concern — the caller in `runSkillForStep`'s "review-completion"
+ * case auto-advances straight to `github` (skipping this gate entirely)
+ * when the parsed concern count is zero. When this gate IS shown, the user
+ * sees a summary of the concerns file (line count of non-empty concern
+ * entries) and explicitly chooses:
  *
  *   - "Address concerns" → advance to `concern-severity` (which itself
  *      prompts for ARCHITECTURAL/MINOR and routes to tech-design or
@@ -726,11 +732,11 @@ async function runSkillForStep(ctx: CmdCtx, state: FeatureState): Promise<void> 
       await runImplBuilderWithRecovery(ctx, state);
       return;
     case "review-completion":
-      // After review: hand the user the human-in-the-loop Review Concerns?
-      // gate. The user inspects 06-review-concerns-to-address.md on disk and
-      // explicitly chooses whether to advance to GitHub or proceed to the
-      // Concern Severity classification. The orchestrator does NOT
-      // auto-decide based on file content.
+      // After review: parse 06-review-concerns-to-address.md. If it has
+      // zero concerns, auto-advance straight to GitHub (the gate is
+      // skipped). Otherwise hand the user the human-in-the-loop Review
+      // Concerns? gate, where they explicitly choose whether to advance to
+      // GitHub or proceed to the Concern Severity classification.
       await runReviewCompletion(ctx, state, {
         onComplete: async (completedState) => {
           const concerns = readConcernsContent(completedState);
@@ -790,8 +796,13 @@ function safeReaddir(cwd: string): string[] {
 
 /**
  * Reads the review-concerns file for a completed review pass. Returns null
- * if the file is missing or unreadable. The orchestrator uses this to
- * decide between github (no concerns) and concern-severity (concerns).
+ * if the file is missing or unreadable. The "review-completion" onComplete
+ * handler in `runSkillForStep` uses the parsed count of this content to
+ * decide between `github` (zero concerns — auto-advance, gate skipped) and
+ * `review-concerns-gate` (one or more concerns — user is shown the gate and
+ * explicitly chooses). `concern-severity` is not decided directly from this
+ * content; it's only reached after the user picks "Address concerns" at
+ * that gate.
  */
 function readConcernsContent(state: FeatureState): string | null {
   // Use the prefix-aware filename so this stays in sync with the path

@@ -76,8 +76,13 @@ export function isValidSeverity(value: unknown): value is Severity {
  */
 const CONCERN_TAG_RE = /^[-*]\s*\[(ARCH|MINOR)\]/i;
 
-/** Exact text (after trimming) used to mark a section as having no concerns. */
-const NO_CONCERNS_LINE = "- No concerns.";
+/**
+ * Text (after trimming and lowercasing) used to mark a section as having no
+ * concerns. Compared case-insensitively for the same tolerance reasons as
+ * `CONCERN_TAG_RE` — an LLM emitting `- no concerns.` should still be
+ * recognised as "no concerns" rather than falling through to untaggedCount.
+ */
+const NO_CONCERNS_LINE = "- no concerns.";
 
 export interface ConcernCounts {
   /** Number of bullets tagged `[ARCH]` (any case). */
@@ -99,7 +104,8 @@ export interface ConcernCounts {
  *   - `content === null` (no concerns file found) → all zeros, and
  *     `recommendedSeverity` defaults to "MINOR" (arbitrary — there's
  *     nothing to recommend from, but callers need a Severity value).
- *   - `- No concerns.` lines are not concerns and are ignored.
+ *   - `- No concerns.` lines (matched case-insensitively) are not concerns
+ *     and are ignored.
  *   - Bullet lines (`-` or `* ` marker) that aren't the "No concerns" line
  *     are tagged via a tolerant, case-insensitive `[ARCH]`/`[MINOR]` regex.
  *     Bullets with no recognisable tag count as `untaggedCount` (and are
@@ -124,7 +130,7 @@ export function parseConcernCounts(content: string | null): ConcernCounts {
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (line.length === 0) continue;
-    if (line === NO_CONCERNS_LINE) continue;
+    if (line.toLowerCase() === NO_CONCERNS_LINE) continue;
     if (!line.startsWith("-") && !line.startsWith("*")) continue;
 
     const match = CONCERN_TAG_RE.exec(line);
