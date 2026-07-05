@@ -143,6 +143,54 @@ describe("runner", () => {
       expect(compactions).toHaveLength(0);
     });
 
+    it("resolves a lazy (function) prompt at send time, reflecting mutations made by an earlier step", async () => {
+      // Simulates the review-loop use case: a later step's prompt must read
+      // fresh state written by an earlier step's LLM turn, not a snapshot
+      // captured when the `steps` array was built.
+      let counter = 0;
+      const ctx = makeFakeCtx();
+      // Mutate `counter` as a side effect of the fake's sendUserMessage,
+      // standing in for "pass 1 appended concerns to the concerns file".
+      const originalSend = ctx.sendUserMessage.bind(ctx);
+      ctx.sendUserMessage = (content: string) => {
+        if (content === "step 1") {
+          counter += 1;
+        }
+        return originalSend(content);
+      };
+
+      await driveIntermediateSteps(ctx, [
+        { prompt: "step 1" },
+        { prompt: () => `value is ${counter}` },
+      ]);
+
+      const prompts = ctx.calls
+        .filter((c) => c.method === "sendUserMessage")
+        .map((c) => c.args[0]);
+      // The steps array was built with counter === 0, but step 2's prompt
+      // function is only invoked immediately before it's sent — by which
+      // point step 1 has already run and incremented counter to 1.
+      expect(prompts).toEqual(["step 1", "value is 1"]);
+    });
+
+    it("sends plain string prompts unchanged when mixed with lazy prompts", async () => {
+      const ctx = makeFakeCtx();
+      await driveIntermediateSteps(ctx, [
+        { prompt: "plain string one" },
+        { prompt: () => "resolved from function" },
+        { prompt: "plain string two" },
+      ]);
+
+      const prompts = ctx.calls
+        .filter((c) => c.method === "sendUserMessage")
+        .map((c) => c.args[0]);
+      expect(prompts).toEqual([
+        "plain string one",
+        "resolved from function",
+        "plain string two",
+      ]);
+    });
+
     it("resolves even if compaction errors (onError resolves)", async () => {
       const ctx = makeFakeCtx();
       // Replace compact to call onError instead of onComplete.
