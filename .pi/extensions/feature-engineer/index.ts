@@ -565,6 +565,44 @@ async function runImplBuilderWithRecovery(
   }
 }
 
+/**
+ * Resolves the feedback text for a `/feature reject` invocation.
+ *
+ * - If `feedback` is already provided (typed inline as `/feature reject <text>`),
+ *   returns it unchanged.
+ * - If null and the session is interactive, prompts via `ui.input` for the
+ *   feedback text. Returns `null` (having already notified the user) if the
+ *   input is cancelled (`undefined`) or left blank/whitespace-only — this
+ *   aborts the rejection, leaving the workflow state unchanged.
+ * - If null and non-interactive, notifies the existing error message
+ *   (unchanged behaviour for non-UI/automation modes) and returns `null`.
+ */
+async function resolveRejectFeedback(
+  ctx: CmdCtx,
+  feedback: string | null,
+): Promise<string | null> {
+  if (feedback !== null) return feedback;
+  if (!ctx.hasUI) {
+    ctx.ui.notify(
+      "Feature Engineer: /feature reject requires feedback. Try: /feature reject <your feedback>",
+      "error",
+    );
+    return null;
+  }
+  const input = await ctx.ui.input(
+    "Rejection feedback:",
+    "Describe what needs to change",
+  );
+  if (input === undefined || input.trim().length === 0) {
+    ctx.ui.notify(
+      "Feature Engineer: rejection cancelled — no feedback provided.",
+      "info",
+    );
+    return null;
+  }
+  return input.trim();
+}
+
 async function handleReject(ctx: CmdCtx, feedback: string | null): Promise<void> {
   if (currentState === null) {
     ctx.ui.notify(
@@ -587,17 +625,12 @@ async function handleReject(ctx: CmdCtx, feedback: string | null): Promise<void>
       );
       return;
     }
-    if (feedback === null) {
-      ctx.ui.notify(
-        "Feature Engineer: /feature reject requires feedback. Try: /feature reject <your feedback>",
-        "error",
-      );
-      return;
-    }
+    const resolvedFeedback = await resolveRejectFeedback(ctx, feedback);
+    if (resolvedFeedback === null) return;
     const updated: FeatureState = {
       ...currentState,
       step: "impl-planning",
-      rejectionFeedback: feedback,
+      rejectionFeedback: resolvedFeedback,
       implFailed: false,
       reviewConcerns: undefined,
     };
@@ -613,17 +646,12 @@ async function handleReject(ctx: CmdCtx, feedback: string | null): Promise<void>
     );
     return;
   }
-  if (feedback === null) {
-    ctx.ui.notify(
-      "Feature Engineer: /feature reject requires feedback. Try: /feature reject <your feedback>",
-      "error",
-    );
-    return;
-  }
+  const resolvedFeedback = await resolveRejectFeedback(ctx, feedback);
+  if (resolvedFeedback === null) return;
 
   const updated: FeatureState = {
     ...currentState,
-    rejectionFeedback: feedback,
+    rejectionFeedback: resolvedFeedback,
     // A new requirement draft will be written — bump the version so the
     // downstream Technical Design prompt references "requirement.md vN+1"
     // (per PRD §7.3). Only `req-gathering` rejections change the

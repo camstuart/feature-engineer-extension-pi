@@ -164,6 +164,38 @@ describe("prompts/req-gathering", () => {
       const prompt = buildReqGatheringPrompt(inputs);
       expect(prompt).toMatch(/in-session edit|in this session, edit|edit the file in place/i);
     });
+
+    it("STEP 3 batches success-criteria confirmation into one confirm per round", () => {
+      const prompt = buildReqGatheringPrompt(inputs);
+      expect(prompt).toContain(
+        "use ONE `ui.confirm` to verify the whole summary before moving on — do not confirm each criterion individually.",
+      );
+      expect(prompt).not.toContain("verify each criterion");
+    });
+
+    it("STEP 4 batches user-story confirmation into one confirm per round (no per-story confirm)", () => {
+      const prompt = buildReqGatheringPrompt(inputs);
+      expect(prompt).toContain(
+        "use ONE `ui.confirm` to verify the full set captures the intent — do not confirm each story individually.",
+      );
+      expect(prompt).not.toContain("ui.confirm` per story");
+      expect(prompt).not.toContain("per story to verify");
+    });
+
+    it("STEP 5 batches goal confirmation into one confirm per round", () => {
+      const prompt = buildReqGatheringPrompt(inputs);
+      expect(prompt).toContain(
+        "use ONE `ui.confirm` to verify the full set — do not confirm each goal individually.",
+      );
+      expect(prompt).not.toContain("verify each goal");
+    });
+
+    it("STEP 8's final summary confirmation is unchanged", () => {
+      const prompt = buildReqGatheringPrompt(inputs);
+      expect(prompt).toContain(
+        'ui.confirm("Is this what you meant?", "Confirm to write the document, or reject to clarify.")',
+      );
+    });
   });
 
   describe("direct mode (clear requirement)", () => {
