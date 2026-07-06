@@ -225,6 +225,57 @@ export function runQACommands(
   return out;
 }
 
+/**
+ * A violation of the Test Builder's red-phase invariant, returned by
+ * {@link checkRedPhase}.
+ *
+ * - `typecheck-failed` — the configured type-check command exited non-zero.
+ *   Test files must parse and type-check cleanly; a type error means the
+ *   Test Builder wrote something broken (not a legitimate red-phase
+ *   failure).
+ * - `tests-passed` — the configured test command exited 0. Tests must fail
+ *   until the Implementation Builder writes the matching production code;
+ *   a passing suite here means the Test Builder wrote production code (or
+ *   a vacuous test) by mistake.
+ */
+export type RedPhaseViolation =
+  | { kind: "typecheck-failed"; result: QARunResult }
+  | { kind: "tests-passed"; result: QARunResult };
+
+/**
+ * Verifies the Test Builder skill's red-phase invariant after it writes
+ * test files: the type-checker (if configured) must exit 0, and the test
+ * runner (if configured) must exit non-zero. Checks type-check first —
+ * a type error is reported before test results, since the test run is
+ * unreliable while the files don't even parse.
+ *
+ * Returns `null` when both invariants hold, or when neither command is
+ * configured in `04-qa-static-tools.md` (nothing to check).
+ */
+export function checkRedPhase(
+  cwd: string,
+  commands: QACommands,
+  options: RunQAOptions = {},
+): RedPhaseViolation | null {
+  const timeoutMs = options.timeoutMs ?? 120_000;
+
+  if (commands.typecheck !== null) {
+    const result = runOne(cwd, commands.typecheck, timeoutMs);
+    if (result.exitCode !== 0) {
+      return { kind: "typecheck-failed", result };
+    }
+  }
+
+  if (commands.test !== null) {
+    const result = runOne(cwd, commands.test, timeoutMs);
+    if (result.exitCode === 0) {
+      return { kind: "tests-passed", result };
+    }
+  }
+
+  return null;
+}
+
 function runOne(cwd: string, command: string, timeoutMs: number): QARunResult {
   // Use a shell so users can write `npm test`, `pnpm typecheck`, `&&` chains,
   // pipes, env-vars, etc. The command is sourced from the user's own

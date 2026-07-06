@@ -23,6 +23,66 @@ export interface TestBuilderPromptInputs {
   state: FeatureState;
 }
 
+export interface TestBuilderRetryPromptInputs {
+  state: FeatureState;
+  attempt: number;
+  maxAttempts: number;
+  /**
+   * Which red-phase invariant the orchestrator's deterministic check
+   * (`checkRedPhase` in `qa.ts`) found violated on the previous attempt.
+   */
+  violation: "typecheck-failed" | "tests-passed";
+  /** The failing command and its output, pre-formatted (e.g. via `formatFailureFeedback`). */
+  failureFeedback: string;
+  implPlan: string;
+}
+
+export function buildTestBuilderRetryPrompt(inputs: TestBuilderRetryPromptInputs): string {
+  const { state, attempt, maxAttempts, violation, failureFeedback, implPlan } = inputs;
+  const isFinal = attempt === maxAttempts;
+
+  const violationExplanation =
+    violation === "typecheck-failed"
+      ? "The type-checker failed on the test files you wrote. Test files must parse and type-check cleanly — a type error is not a legitimate red-phase failure, it means something is broken in the test file itself (bad import path, wrong signature, syntax error, etc.)."
+      : "The test runner reported a clean pass (exit code 0). Tests must fail with a meaningful error until the Implementation Builder writes the matching production code — a passing suite here means you wrote real production code by mistake, or a vacuous test that asserts nothing (e.g. missing `expect(...)`, an empty test body, or a test that doesn't exercise the untested code path).";
+
+  const fixInstruction =
+    violation === "typecheck-failed"
+      ? "Fix the type error(s) directly in the test file(s) — do not touch production code, and do not weaken the test to work around the error."
+      : "Find the test(s) that passed and rewrite them so they genuinely exercise the not-yet-implemented behaviour and fail with a meaningful runtime error (e.g. `<symbol> is not a function`, not a parse/import error). Do not add or edit any production code to make a test fail.";
+
+  const lines: string[] = [
+    skillHeader(state, `Test Builder — Retry ${attempt}/${maxAttempts}`),
+    "",
+    `Attempt ${attempt} of ${maxAttempts}${isFinal ? " (FINAL — no further retries)" : ""}.`,
+    "",
+    "The orchestrator's deterministic red-phase check found a violation in your previous attempt:",
+    "",
+    violationExplanation,
+    "",
+    "## Observed Outcome",
+    "",
+    "```",
+    failureFeedback,
+    "```",
+    "",
+    "## Implementation Plan (context)",
+    "",
+    "Re-read this to confirm which symbols are not implemented yet.",
+    ...codeBlock("05-technical-plan-implementation.md", implPlan),
+    "",
+    "## Process",
+    "",
+    fixInstruction,
+    "",
+    "Then re-run both the type-checker and the test runner yourself as a sanity check before ending your turn.",
+    "",
+    "When complete, end your turn with a one-sentence summary: which test files you changed and why.",
+  ];
+
+  return lines.join("\n");
+}
+
 export function buildTestBuilderPrompt(inputs: TestBuilderPromptInputs): string {
   const { architecture, testPlan, implPlan, structure, techStack, qaStaticTools, state } = inputs;
 

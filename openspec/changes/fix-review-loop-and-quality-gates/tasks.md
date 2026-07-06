@@ -51,9 +51,9 @@
 
 ## 8. Red-phase verification after test-builder
 
-- [ ] 8.1 In `skills/test-builder.ts`, after the session: run type-check (must exit 0) and test runner (must exit non-zero) via `qa.ts` helpers; on violation re-prompt once with the observed outcome; on second violation notify and pause (subsequent `/feature` re-runs test-builder)
-- [ ] 8.2 Add a retry-prompt builder to `prompts/test-builder.ts` for the passing-tests / type-error cases
-- [ ] 8.3 Update `tests/prompts/test-builder.test.ts` and add runner-level tests for the red-phase gate
+- [x] 8.1 In `skills/test-builder.ts`, after the session: run type-check (must exit 0) and test runner (must exit non-zero) via `qa.ts` helpers; on violation re-prompt once with the observed outcome; on second violation notify and pause (subsequent `/feature` re-runs test-builder)
+- [x] 8.2 Add a retry-prompt builder to `prompts/test-builder.ts` for the passing-tests / type-error cases
+- [x] 8.3 Update `tests/prompts/test-builder.test.ts` and add runner-level tests for the red-phase gate
 
 ## 9. Branch lifecycle
 
