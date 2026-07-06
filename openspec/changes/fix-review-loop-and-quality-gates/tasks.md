@@ -57,9 +57,9 @@
 
 ## 9. Branch lifecycle
 
-- [ ] 9.1 In `index.ts`, on approving impl-planning: resolve branch name via `git-checks.ts`, then create/checkout/no-op the branch; on git failure notify and stay at impl-planning
-- [ ] 9.2 Rewrite `prompts/github.ts` process: verify commits exist on the branch (BLOCKED if none), push, PR when applicable, update index — no branch creation or committing
-- [ ] 9.3 Update `tests/prompts/github.test.ts`
+- [x] 9.1 In `index.ts`, on approving impl-planning: resolve branch name via `git-checks.ts`, then create/checkout/no-op the branch; on git failure notify and stay at impl-planning
+- [x] 9.2 Rewrite `prompts/github.ts` process: verify commits exist on the branch (BLOCKED if none), push, PR when applicable, update index — no branch creation or committing
+- [x] 9.3 Update `tests/prompts/github.test.ts`
 
 ## 10. UX polish
 
