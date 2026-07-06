@@ -137,4 +137,22 @@ describe("prompts/test-planning", () => {
 
     expect(prompt).toMatch(/stable.*it\(/i);
   });
+
+  it("does not instruct populating a Static QA Assertions block", () => {
+    const prompt = buildTestPlanningPrompt({
+      template: TEMPLATE,
+      requirement: REQUIREMENT,
+      architecture: ARCH,
+      structure: STRUCTURE,
+      techStack: TECH,
+      qaStaticTools: QA_STATIC,
+      qaEngineering: QA_ENG,
+      existingTestPlan: null,
+      state: BASE_STATE,
+      rejectionFeedback: null,
+      outputPath: "/x/technical-plan-testing.md",
+    });
+
+    expect(prompt).not.toMatch(/Static QA Assertions/);
+  });
 });

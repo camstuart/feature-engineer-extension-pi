@@ -203,8 +203,11 @@ export function isUiStep(step: FeatureStep): boolean {
 }
 
 /**
- * Interactive skills: user reviews the generated document before advancing.
- * The skill prompt instructs the LLM to use `ui.confirm()` to gate progression.
+ * Interactive skills: user reviews the generated document on disk before
+ * advancing. The user types `/feature approve` (which also runs the
+ * deterministic approve-gate validation — see `approve-gate.ts`) or
+ * `/feature reject <feedback>` to regenerate. The LLM never gates its own
+ * progression — it writes the artifact and ends its turn.
  */
 const INTERACTIVE_STEPS: ReadonlySet<FeatureStep> = new Set([
   "analyse-codebase",

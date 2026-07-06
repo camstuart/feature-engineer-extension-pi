@@ -88,9 +88,8 @@ export function buildTestPlanningPrompt(inputs: TestPlanningPromptInputs): strin
     "",
     "1. Walk through the requirement and architecture to enumerate every component, function, or boundary that needs a test.",
     "2. For each, write one or more test cases. Use **stable, descriptive `it(\"should ...\")` strings** — these will be cross-referenced by the implementation plan and the code itself.",
-    "3. For the `## Static QA Assertions` block, list **every** command from `04-qa-static-tools.md`. The Implementation Builder must pass each one after every task. If a coverage threshold is specified in `04-qa-static-tools.md`, fill in `{{COVERAGE_THRESHOLD}}` with the actual value; if not specified, write `not enforced`.",
-    "4. Write the document to the output path. Run the self-check in the approval-gate reminder.",
-    "5. Present the output path and a 3-5 bullet summary of the coverage decisions you made.",
+    "3. Write the document to the output path. Run the self-check in the approval-gate reminder.",
+    "4. Present the output path and a 3-5 bullet summary of the coverage decisions you made.",
     "",
     ...interactiveApprovalReminder("Test plan approved"),
   ];

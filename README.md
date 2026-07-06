@@ -27,7 +27,7 @@ minimal.
   config/                          ← actors, structure, tech-stack, qa-*, git-strategy
   artifacts/                       ← requirement, technical-architecture, technical-plan-*, review-concerns
 
-tests/                             ← vitest suite (261 tests, dev-only, not published)
+tests/                             ← vitest suite (493 tests, dev-only, not published)
 ```
 
 ## File naming convention
@@ -57,7 +57,7 @@ skills):
 03-technical-architecture.md  # tech-design phase 2
 04-technical-plan-testing.md  # test-planning
 05-technical-plan-implementation.md  # impl-planning
-06-review-concerns-to-address.md  # review-completion (8 passes)
+06-review-concerns-to-address.md  # review-completion (5 passes + git checks)
 ```
 
 **Project root registry** (unprefixed — it's a special metadata file, not a
@@ -131,7 +131,7 @@ shown in its description and all status output).
 |---|---|
 | `/feature` | Start a new workflow or resume the current one |
 | `/feature approve` | Approve the current step and advance to the next |
-| `/feature reject <feedback>` | Re-run the current design skill with feedback (valid at `req-gathering`, `tech-design`, `test-planning`, `impl-planning` only). For `req-gathering`, the previously-chosen `direct`/`vague` mode is preserved. |
+| `/feature reject <feedback>` | Re-run the current design skill with feedback (valid at `req-gathering`, `tech-design`, `test-planning`, `impl-planning` only). For `req-gathering`, the previously-chosen `direct`/`vague` mode is preserved. If `<feedback>` is omitted in an interactive session, an input prompt asks for it; cancelling aborts with no state change. |
 | `/feature status` | Show the current workflow position and extension version |
 
 Argument auto-completion is provided for the subcommands (`approve`,
@@ -175,18 +175,33 @@ node scripts/render-workflow.mjs
   - **`direct`** — the user has a clear, detailed requirement ready. The LLM captures it faithfully and asks at most 1-2 critical questions only when truly necessary. No discovery Q&A.
   - **`vague`** (default for backward compatibility) — the user has a rough idea. The LLM runs a structured discovery Q&A loop (problem, users, success criteria, user stories, goals, requirements, edge cases, open questions) before drafting.
   - The choice is persisted in the `fe-state` and preserved across `/feature reject` loops so a rejected requirement re-runs in the same mode.
+- **`/feature reject` without inline feedback** opens an interactive prompt asking for the feedback text (in TUI/RPC mode); cancelling or leaving it blank aborts the rejection with no state change. Non-interactive mode is unchanged — it still requires feedback inline (`/feature reject <feedback>`) and errors otherwise. In `vague` mode, each discovery round (success criteria, user stories, goals) asks for ONE confirmation covering everything gathered in that round, not one confirmation per item — the final whole-document summary confirmation (STEP 8) and the on-disk approval gate are unchanged.
 - **Interactive skills** (`analyse-codebase`, `req-gathering`, `test-planning`, `impl-planning`) write their artifact, end their turn, and wait. The user reviews the file on disk, then types `/feature approve` to advance or `/feature reject <feedback>` to regenerate. The orchestrator (not the LLM) drives the gate.
 - **Init stage is agent-driven.** When `/feature` is run on an uninitialised project, the analyse-codebase skill scans the codebase (file tree, package manifests, QA configs, git history), reads the supplied context documents (README, CLAUDE.md, AGENTS.md, PRD), and pre-fills the six config files from their templates. The LLM only asks the user about gaps it genuinely cannot infer (e.g. an empty repo with no context documents at all). The user reviews the populated files on disk, can edit anything they want, then types `/feature approve` to continue.
 - **Multi-phase skills** (`tech-design`) run two prompt phases in the same session with deterministic context compaction between them: phase 1 scans the codebase and writes `02-relevant-components.md`; phase 2 drafts `03-technical-architecture.md` from the compacted inventory.
-- **Multi-pass skills** (`review-completion`) run 8 review passes in a single session with compaction between passes. Each pass sees the prior passes' concerns as background context.
-- **Automated skills** (`test-builder`, `impl-builder`, `github`) run end-to-end and auto-advance to the next step. The Implementation Builder has an orchestrator-driven QA retry loop: after each attempt the orchestrator parses `04-qa-static-tools.md`, runs the commands itself, and re-prompts with the failure output (truncated to 4 KB) up to 3 times. If the budget is exhausted, the workflow pauses with `implFailed: true` persisted to the session — `/feature approve` retries the impl as-is, `/feature reject <feedback>` loops back to Implementation Planning.
-- The `github` skill is gated on the `gh` CLI being available — the orchestrator detects this with `gh --version` before starting the skill and passes the boolean to the prompt.
-- After `review-completion`, the orchestrator reads `06-review-concerns-to-address.md`:
-  - every heading empty → advance to `github`
-  - any heading has a concrete concern → advance to `concern-severity`, prompt for `ARCHITECTURAL` (→ `tech-design`) or `MINOR` (→ `impl-builder`)
+- **Multi-pass skills** (`review-completion`) run 5 review passes (`requirements-coverage` — which also covers per-actor user-story coverage, `file-structure`, `tech-stack`, `engineering-principles`, `architecture-conformance`) in a single session with compaction between passes. Each pass reads the concerns file *at the moment it runs* (not a snapshot frozen at session start), so it genuinely sees what earlier passes in the same cycle wrote. After the LLM passes finish, the orchestrator also runs deterministic git-strategy checks (current branch name vs. the configured pattern, commit existence, and — when a `Commit pattern:` line is configured — commit-subject format) and writes any findings into the same concerns file under `## Git Strategy`, tagged `[MINOR]`.
+- **Concerns file rotation.** At the start of each review cycle, an existing `06-review-concerns-to-address.md` from a prior cycle is rotated to `06-review-concerns.v<N>.md` (lowest unused N) rather than overwritten — so re-review cycles (after a MINOR or ARCHITECTURAL fix pass) always start from a clean file, and prior cycles remain on disk as an audit trail.
+- **Concern taxonomy.** Concerns are tagged `[ARCH]` (architectural — routes back to `tech-design`) or `[MINOR]` (routes to `impl-builder`); untagged bullets count as `[MINOR]`. If the review comes back completely clean (every section is empty or `- No concerns.`), the orchestrator notifies and advances straight to `github` — the human gate is skipped entirely. If at least one concern exists, the user is shown the concern count and asked to Address (→ severity choice, pre-selecting the recommended route based on whether any `[ARCH]` concern exists) or Skip (→ `github` anyway). Whichever skill the severity choice routes to (`tech-design` or `impl-builder`) receives the outstanding concerns injected into its prompt as a `## Review Concerns To Address` block — a separate channel from human `/feature reject` feedback, which is always cleared on any reject.
+- **Automated skills** (`test-builder`, `impl-builder`, `github`) run end-to-end and auto-advance to the next step. Each has an orchestrator-driven deterministic check — the LLM's self-report is never trusted alone:
+  - **Test Builder** writes the test files, then the orchestrator itself runs the configured type-check (must pass) and test-runner command (must fail — a genuine red phase, not a parse error or a vacuously-passing test) via `04-qa-static-tools.md`. A violation gets one retry with the observed outcome; a second violation pauses the workflow with a notification (re-run `/feature` to retry test-builder).
+  - **Implementation Builder** has an orchestrator-driven QA retry loop: after each attempt the orchestrator parses `04-qa-static-tools.md`, runs the commands itself, and re-prompts with the failure output (truncated to 4 KB) up to 3 times. If the budget is exhausted, the workflow pauses with `implFailed: true` persisted to the session — `/feature approve` retries the impl as-is, `/feature reject <feedback>` loops back to Implementation Planning.
+- **Branch lifecycle.** Approving `impl-planning` creates (or checks out, or no-ops if already current) the feature branch *before* `test-builder` starts, using a `Branch pattern:` line in `06-git-strategy.md` (e.g. `` Branch pattern: `feature/{slug}` `` — supports `{slug}`/`{id}` substitution; defaults to `feature/<slug>` when the line is absent or unparseable). The `github` skill no longer creates branches or commits — it only verifies commits exist (canceling before ever starting an LLM session if none are found relative to the configured base branch), pushes, opens a PR when the `gh` CLI is available and the strategy calls for one, and updates `features-index.md`. `gh` availability is still detected with `gh --version` before starting the skill.
+- **Deterministic approve gate.** `/feature approve` at any interactive artifact step (`analyse-codebase`, `req-gathering`, `tech-design`, `test-planning`, `impl-planning`) validates the artifact just written before advancing: it hard-blocks (does not advance, names the offending file and lines) if the file is missing, still contains a `{{placeholder}}` marker, or still contains an `<!-- AI: -->` comment; it soft-warns (asks whether to proceed anyway) if template section headings are missing. This is enforced by the orchestrator, not just the LLM's own self-check.
 - All skills read templates from the global location
   (`~/.pi/agent/feature-engineer/templates/`); per-project state lives in
   `<project>/.feature-engineer/`.
+
+## Tips
+
+A few things that make the workflow noticeably better once you know them:
+
+- **Fill in the `06-git-strategy.md` structured lines early.** `` Branch pattern: `feature/{slug}` ``, an optional `` Commit pattern: `^(feat|fix|...)...` ``, and an optional `` Base branch: `main` `` aren't just LLM guidance — the orchestrator parses them to create the feature branch, run deterministic git-strategy checks during review, and validate commits before the `github` skill pushes. Getting these right once (during Analyse Codebase, or by hand afterwards) pays off on every feature you build afterwards.
+- **Pick the requirement-gathering mode deliberately.** `direct` mode is for when you already know what you want — it skips the Q&A loop and asks at most 1-2 clarifying questions. `vague` mode is for when you want the LLM to help you think it through via structured discovery. Both produce the same `01-requirement.md` template; the difference is entirely in how much the LLM interviews you first.
+- **Read the artifact on disk before you `/feature approve`.** The workflow pauses at every interactive step specifically so you can open the file and read it — or edit it directly — before advancing. The approve gate catches mechanical leftovers (placeholders, AI-authoring comments, missing sections) but it cannot judge whether the content is *good*; that's still your job.
+- **Use `/feature reject` freely at design gates.** Rejecting is cheap — the skill re-runs in a fresh session with your feedback and the previous draft as a baseline, so there's no penalty for iterating a few times to get the architecture or test plan right before committing to Implementation Planning.
+- **When a review cycle finds concerns, read `06-review-concerns-to-address.md` before picking a severity.** The gate pre-selects a recommended route (ARCHITECTURAL if any `[ARCH]`-tagged concern exists, otherwise MINOR), but it's a starting point, not a verdict — a single `[ARCH]` concern next to nine trivial `[MINOR]` ones might still be worth fixing inline rather than sending the whole feature back through Technical Design.
+- **For long-running features, tune the rate-limit flags** (`--feature-rate-limit-threshold`, `--feature-rate-limit-poll`, `--feature-rate-limit-buffer` — see below) so multi-hour builds don't get surprised by a provider's rate-limit window mid-implementation.
+- **Customise templates once, globally.** Everything in `~/.pi/agent/feature-engineer/templates/` is shared across every project on your machine. If you always want an extra section in `03-technical-architecture.md`, or a stricter engineering-principles template, edit it there once rather than per-project.
 
 ## Context management
 
@@ -280,7 +295,7 @@ after any required wait.
 
 ```bash
 pnpm install
-pnpm test         # vitest, 356 unit tests across the pure-logic modules
+pnpm test         # vitest, 493 unit tests across the pure-logic modules
 pnpm typecheck    # strict tsc, zero errors
 ```
 
@@ -304,6 +319,9 @@ The test suite covers:
 - Runner's `intermediateSteps` mechanism (send → wait → compact, deterministic ordering) (`runner.ts`)
 - Runner's `startSkillSession` setup phase (writes fe-state and session name, no longer touches a captured `pi`) (`runner.ts`)
 - Runner awaits the rate-limit gate before `ctx.newSession()` (`runner.ts`)
+- Deterministic approve-gate artifact validation: missing file / placeholder / AI-comment hard blocks, missing-heading soft warn, optional-heading allowlist (`approve-gate.ts`)
+- Deterministic git-strategy checks: branch-pattern/commit-pattern parsing and substitution, branch-name matching, commit existence/format checks, branch create/checkout/no-op lifecycle (`git-checks.ts`)
+- Red-phase verification: type-check-must-pass / test-must-fail enforcement, retry-then-pause behaviour (`qa.ts` + `skills/test-builder.ts`)
 - Extension entry point imports cleanly (`load.test.ts`)
 
 The orchestrator glue in `index.ts` is integration-tested manually via Pi.

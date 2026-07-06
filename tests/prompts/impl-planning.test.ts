@@ -137,4 +137,24 @@ describe("prompts/impl-planning", () => {
 
     expect(prompt).toMatch(/Satisfies tests.*it\(/i);
   });
+
+  it("does not instruct [CHECKPOINT]/[INLINE] markers but keeps Commit Checkpoints", () => {
+    const prompt = buildImplPlanningPrompt({
+      template: TEMPLATE,
+      requirement: REQUIREMENT,
+      architecture: ARCH,
+      testPlan: TEST_PLAN,
+      structure: STRUCTURE,
+      qaEngineering: QA_ENG,
+      gitStrategy: GIT_STRATEGY,
+      existingImplPlan: null,
+      state: BASE_STATE,
+      rejectionFeedback: null,
+      outputPath: "/x/technical-plan-implementation.md",
+    });
+
+    expect(prompt).not.toContain("[CHECKPOINT]");
+    expect(prompt).not.toContain("[INLINE]");
+    expect(prompt).toContain("## Commit Checkpoints");
+  });
 });
