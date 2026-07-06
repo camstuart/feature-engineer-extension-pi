@@ -449,13 +449,15 @@ async function runApproveGate(
       .join("\n");
 
     if (!ctx.hasUI) {
-      // Non-interactive automation can't be prompted — warn and proceed
-      // rather than blocking indefinitely on a condition it cannot resolve.
+      // Match the established !ctx.hasUI convention elsewhere in this file
+      // (see promptConcernSeverity / promptReviewConcernsGate): pause rather
+      // than guess. An incomplete artifact must not silently advance in a
+      // headless/automation run.
       ctx.ui.notify(
-        `Feature Engineer: warning — ${detail}\n(non-interactive mode: proceeding automatically)`,
-        "warning",
+        `Feature Engineer v${VERSION}: cannot resolve missing headings in non-interactive mode. Re-run /feature in TUI or RPC mode.\n${detail}`,
+        "error",
       );
-      return "proceed";
+      return "blocked";
     }
 
     ctx.ui.notify(`Feature Engineer: warning —\n${detail}`, "warning");

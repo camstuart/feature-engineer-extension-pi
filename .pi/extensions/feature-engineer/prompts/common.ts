@@ -47,7 +47,7 @@ export function templatePopulationReminder(): string[] {
     "",
     "**Template Population Reminder**",
     "",
-    "Replace every `{{placeholder}}` marker and remove every `<!-- AI: ... -->` comment before finishing — the orchestrator validates this deterministically on `/feature approve` and will block advancement if either remains.",
+    "Replace every `{{placeholder}}` marker and remove every `<!-- AI: ... -->` comment before finishing — for interactive skills, the orchestrator validates this deterministically when the user runs `/feature approve` and will block advancement if either remains; write clean output regardless of which skill you're in.",
   ];
 }
 
