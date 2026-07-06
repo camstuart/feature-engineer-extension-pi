@@ -157,10 +157,36 @@ export function summariseResults(results: readonly QARunResult[]): string {
 }
 
 /**
+ * Renders a single QA command's output as a markdown block, regardless of
+ * its exit code. Includes the command and the last 4 KB of combined
+ * stdout+stderr — enough to show the output without blowing up the prompt.
+ * Truncates with a `[truncated]` marker.
+ *
+ * Used directly by the red-phase check to show the LLM/user the observed
+ * output even when the "violation" is that a command exited 0 (e.g. tests
+ * unexpectedly passing) — {@link formatFailureFeedback} would filter that
+ * result out since it only renders non-zero exits.
+ */
+export function formatCommandOutput(result: QARunResult): string {
+  const lines: string[] = [`### ${result.command}`, "", "```"];
+  const combined = (result.stdout || "") + (result.stderr || "");
+  const max = 4096;
+  if (combined.length > max) {
+    lines.push(combined.slice(combined.length - max));
+    lines.push("[truncated to last 4 KB]");
+  } else {
+    lines.push(combined);
+  }
+  lines.push("```", "");
+  return lines.join("\n");
+}
+
+/**
  * Render the failed commands' output as a markdown block suitable for
- * feeding back to the LLM on a retry. Includes the command and the last
- * 4 KB of combined stdout+stderr — enough to show the failure without
- * blowing up the prompt. Truncates with a `[truncated]` marker.
+ * feeding back to the LLM on a retry. Filters to non-zero exit codes only —
+ * suitable for the Implementation Builder's QA suite, where only genuinely
+ * failed commands should be shown. Falls back to a generic "all passed"
+ * message when nothing survives the filter.
  */
 export function formatFailureFeedback(results: readonly QARunResult[]): string {
   const failures = results.filter((r) => r.exitCode !== 0);
@@ -170,16 +196,7 @@ export function formatFailureFeedback(results: readonly QARunResult[]): string {
     "",
   ];
   for (const f of failures) {
-    lines.push(`### ${f.command}`, "", "```");
-    const combined = (f.stdout || "") + (f.stderr || "");
-    const max = 4096;
-    if (combined.length > max) {
-      lines.push(combined.slice(combined.length - max));
-      lines.push("[truncated to last 4 KB]");
-    } else {
-      lines.push(combined);
-    }
-    lines.push("```", "");
+    lines.push(formatCommandOutput(f));
   }
   return lines.join("\n");
 }

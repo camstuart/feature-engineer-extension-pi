@@ -17,6 +17,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { readArtifact, readConfigFile } from "../files.js";
 import {
   checkRedPhase,
+  formatCommandOutput,
   formatFailureFeedback,
   parseQAStaticTools,
   type RedPhaseViolation,
@@ -27,6 +28,19 @@ import { startSkillSession } from "./runner.js";
 
 /** Initial attempt plus one retry — matches the impl-builder QA loop's shape. */
 export const DEFAULT_MAX_ATTEMPTS = 2;
+
+/**
+ * Renders a red-phase violation's observed output for feedback purposes.
+ * `formatFailureFeedback` filters to non-zero exit codes, which is wrong
+ * for `tests-passed` violations — there the "violation" IS a 0 exit code,
+ * and we specifically want to show that command's output (not the generic
+ * "All QA tools passed." fallback `formatFailureFeedback` would produce).
+ */
+function formatViolationFeedback(violation: RedPhaseViolation): string {
+  return violation.kind === "tests-passed"
+    ? formatCommandOutput(violation.result)
+    : formatFailureFeedback([violation.result]);
+}
 
 export async function runTestBuilder(
   ctx: ExtensionCommandContext,
@@ -80,7 +94,7 @@ export async function runTestBuilder(
           attempt,
           maxAttempts,
           violation: lastViolation!.kind,
-          failureFeedback: formatFailureFeedback([lastViolation!.result]),
+          failureFeedback: formatViolationFeedback(lastViolation!),
           implPlan,
         })
       : prompt;
@@ -138,7 +152,7 @@ export async function runTestBuilder(
     // boundary, even though we've already ruled out null/undefined above.
     const violation = lastViolation as RedPhaseViolation;
     ctx.ui.notify(
-      `Feature Engineer: Test Builder failed its red-phase check after ${maxAttempts} attempts (${violation.kind}). The workflow is paused — review the output below, then run /feature to retry Test Builder.\n\n${formatFailureFeedback([violation.result])}`,
+      `Feature Engineer: Test Builder failed its red-phase check after ${maxAttempts} attempts (${violation.kind}). The workflow is paused — review the output below, then run /feature to retry Test Builder.\n\n${formatViolationFeedback(violation)}`,
       "error",
     );
     return { cancelled: false };

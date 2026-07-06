@@ -7,6 +7,7 @@ import {
   type QARunResult,
   aggregateQAResults,
   checkRedPhase,
+  formatCommandOutput,
   formatFailureFeedback,
   parseQAStaticTools,
   runQACommands,
@@ -184,6 +185,33 @@ Coverage threshold: 75%
         { command: "a", exitCode: 1, stdout: long, stderr: "" },
       ];
       const out = formatFailureFeedback(results);
+      expect(out).toContain("[truncated");
+    });
+  });
+
+  describe("formatCommandOutput", () => {
+    it("renders a 0-exit-code result's actual output, not a generic pass message", () => {
+      const result: QARunResult = {
+        command: "npm test",
+        exitCode: 0,
+        stdout: "all tests passed output",
+        stderr: "",
+      };
+      const out = formatCommandOutput(result);
+      expect(out).toContain("all tests passed output");
+      expect(out).not.toContain("All QA tools passed.");
+      expect(out).toContain("npm test");
+    });
+
+    it("truncates very long output", () => {
+      const long = "y".repeat(8000);
+      const result: QARunResult = {
+        command: "a",
+        exitCode: 0,
+        stdout: long,
+        stderr: "",
+      };
+      const out = formatCommandOutput(result);
       expect(out).toContain("[truncated");
     });
   });
