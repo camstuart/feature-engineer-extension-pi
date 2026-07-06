@@ -2,30 +2,30 @@
 
 ## 1. Runner: lazy intermediate-step prompts
 
-- [ ] 1.1 Extend `IntermediateStep.prompt` in `skills/runner.ts` to `string | (() => string)`; resolve immediately before sending each step
-- [ ] 1.2 Add runner tests: lazy prompt resolved at step time (mutate underlying data between steps and assert the later value is used); plain string prompts unchanged (`tests/runner.test.ts`)
+- [x] 1.1 Extend `IntermediateStep.prompt` in `skills/runner.ts` to `string | (() => string)`; resolve immediately before sending each step
+- [x] 1.2 Add runner tests: lazy prompt resolved at step time (mutate underlying data between steps and assert the later value is used); plain string prompts unchanged (`tests/runner.test.ts`)
 
 ## 2. Review pass consolidation and taxonomy
 
-- [ ] 2.1 In `prompts/review-completion.ts`, reduce `REVIEW_PASSES` to 5: merge `actors-coverage` into `requirements-coverage` (question/instructions cover per-actor story coverage; files include `01-actors.md`), delete `static-qa` and `git-strategy` passes
-- [ ] 2.2 Change the concern format to `- [ARCH|MINOR] <observation> → <suggested fix>`; remove `BLOCKER/MAJOR/NIT` from prompt text
-- [ ] 2.3 Remove the "leave the heading body empty" instruction; keep `- No concerns.` as the single empty-finding convention
-- [ ] 2.4 Rewrite the "What Happens Next" section: clean review auto-advances to GitHub; concerns lead to the user gate with a parsed recommendation
-- [ ] 2.5 Update `templates/artifacts/review-concerns.md`: drop the `## Static QA` section, keep `## Git Strategy` (now orchestrator-written), update the `## Summary` AI hint to the ARCH/MINOR taxonomy
-- [ ] 2.6 Update `tests/prompts/review-completion.test.ts` for the 5-pass set, tag format, and routing description
+- [x] 2.1 In `prompts/review-completion.ts`, reduce `REVIEW_PASSES` to 5: merge `actors-coverage` into `requirements-coverage` (question/instructions cover per-actor story coverage; files include `01-actors.md`), delete `static-qa` and `git-strategy` passes
+- [x] 2.2 Change the concern format to `- [ARCH|MINOR] <observation> → <suggested fix>`; remove `BLOCKER/MAJOR/NIT` from prompt text
+- [x] 2.3 Remove the "leave the heading body empty" instruction; keep `- No concerns.` as the single empty-finding convention
+- [x] 2.4 Rewrite the "What Happens Next" section: clean review auto-advances to GitHub; concerns lead to the user gate with a parsed recommendation
+- [x] 2.5 Update `templates/artifacts/review-concerns.md`: drop the `## Static QA` section, keep `## Git Strategy` (now orchestrator-written), update the `## Summary` AI hint to the ARCH/MINOR taxonomy
+- [x] 2.6 Update `tests/prompts/review-completion.test.ts` for the 5-pass set, tag format, and routing description
 
 ## 3. Review runner: rotation and lazy prior concerns
 
-- [ ] 3.1 In `skills/review-completion.ts`, rotate an existing `06-review-concerns-to-address.md` to `06-review-concerns.v<N>.md` (first unused N) before pass 1; add a `rotateConcernsFile` helper in `paths.ts` or `files.ts`
-- [ ] 3.2 Build pass 2–5 prompts as lazy closures that read the concerns file at resolution time
-- [ ] 3.3 Add tests: rotation naming (v1, v2), no-op when absent; lazy priorConcerns sees pass-1 output (`tests/` new or extended suite)
+- [x] 3.1 In `skills/review-completion.ts`, rotate an existing `06-review-concerns-to-address.md` to `06-review-concerns.v<N>.md` (first unused N) before pass 1; add a `rotateConcernsFile` helper in `paths.ts` or `files.ts`
+- [x] 3.2 Build pass 2–5 prompts as lazy closures that read the concerns file at resolution time
+- [x] 3.3 Add tests: rotation naming (v1, v2), no-op when absent; lazy priorConcerns sees pass-1 output (`tests/` new or extended suite)
 
 ## 4. Deterministic git checks
 
-- [ ] 4.1 Create `git-checks.ts`: parse `Branch pattern:` and optional `Commit pattern:` backtick-quoted lines from git-strategy content ({slug}/{id} substitutions, `feature/<slug>` default); check current branch name, commit existence, and (when configured) commit-subject format
-- [ ] 4.2 Wire the checks into `skills/review-completion.ts` after the LLM passes; append failures as `[MINOR]` concerns under `## Git Strategy` in the active concerns file
-- [ ] 4.3 Add `Branch pattern:` line to `templates/config/git-strategy.md` (and the repo's own `.feature-engineer/git-strategy.md`)
-- [ ] 4.4 Add `tests/git-checks.test.ts`: pattern parsing, substitution, default fallback, branch mismatch, missing commit pattern skips format check
+- [x] 4.1 Create `git-checks.ts`: parse `Branch pattern:` and optional `Commit pattern:` backtick-quoted lines from git-strategy content ({slug}/{id} substitutions, `feature/<slug>` default); check current branch name, commit existence, and (when configured) commit-subject format
+- [x] 4.2 Wire the checks into `skills/review-completion.ts` after the LLM passes; append failures as `[MINOR]` concerns under `## Git Strategy` in the active concerns file
+- [x] 4.3 Add `Branch pattern:` line to `templates/config/git-strategy.md` (and the repo's own `.feature-engineer/git-strategy.md`)
+- [x] 4.4 Add `tests/git-checks.test.ts`: pattern parsing, substitution, default fallback, branch mismatch, missing commit pattern skips format check
 
 ## 5. Severity gate: parsing, recommendation, clean auto-advance
 
@@ -63,8 +63,8 @@
 
 ## 10. UX polish
 
-- [ ] 10.1 `handleReject` in `index.ts`: no feedback + UI mode → `ui.input` for feedback; cancel aborts; non-UI keeps the error
-- [ ] 10.2 `prompts/req-gathering.ts` vague mode: replace per-item confirms in STEPs 3–5 with one synthesis + confirm per round; update `tests/prompts/req-gathering.test.ts`
+- [x] 10.1 `handleReject` in `index.ts`: no feedback + UI mode → `ui.input` for feedback; cancel aborts; non-UI keeps the error
+- [x] 10.2 `prompts/req-gathering.ts` vague mode: replace per-item confirms in STEPs 3–5 with one synthesis + confirm per round; update `tests/prompts/req-gathering.test.ts`
 
 ## 11. Docs and template sync
 
