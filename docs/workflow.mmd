@@ -24,9 +24,8 @@ flowchart TD
     tp -- "/feature approve" --> ip["impl-planning"]:::skill
     tp -. "/feature reject" .-> tp
 
-    ip -- "/feature approve<br/>(creates/checks out<br/>feature branch)" --> branch{"Branch ensured"}:::gate
+    ip -- "/feature approve<br/>(creates/checks out<br/>feature branch)" --> tb["test-builder<br/>(red-phase gate)"]:::automated
     ip -. "/feature reject" .-> ip
-    branch --> tb["test-builder<br/>(red-phase gate)"]:::automated
 
     tb -- "type-check ok,<br/>tests fail" --> ib["impl-builder<br/>(orchestrator-driven<br/>QA retry loop)"]:::automated
     tb -- "red phase violated<br/>2x" --> tbPaused{"Test Builder<br/>paused"}:::paused

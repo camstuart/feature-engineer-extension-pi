@@ -68,11 +68,11 @@
 
 ## 11. Docs and template sync
 
-- [ ] 11.1 README: fix post-review routing description, document rotation (`06-review-concerns.v<N>.md`), approve-gate validation, red-phase gate, branch timing, `Branch pattern:` line, 5-pass review
-- [ ] 11.2 Fix `state.ts` INTERACTIVE_STEPS comment (`ui.confirm` → `/feature approve`)
-- [ ] 11.3 `prompts/impl-planning.ts`: remove `[CHECKPOINT]`/`[INLINE]` marker instructions (keep `## Commit Checkpoints`); update its tests
-- [ ] 11.4 `templates/artifacts/technical-plan-testing.md`: remove the `## Static QA Assertions` section; adjust `prompts/test-planning.ts` step 3 and tests
-- [ ] 11.5 Update `docs/workflow.mmd` (branch-create node before test-builder, clean-review auto-advance edge, 5-pass review label) and regenerate `workflow.svg` via `node scripts/render-workflow.mjs`
+- [x] 11.1 README: fix post-review routing description, document rotation (`06-review-concerns.v<N>.md`), approve-gate validation, red-phase gate, branch timing, `Branch pattern:` line, 5-pass review
+- [x] 11.2 Fix `state.ts` INTERACTIVE_STEPS comment (`ui.confirm` → `/feature approve`)
+- [x] 11.3 `prompts/impl-planning.ts`: remove `[CHECKPOINT]`/`[INLINE]` marker instructions (keep `## Commit Checkpoints`); update its tests
+- [x] 11.4 `templates/artifacts/technical-plan-testing.md`: remove the `## Static QA Assertions` section; adjust `prompts/test-planning.ts` step 3 and tests
+- [x] 11.5 Update `docs/workflow.mmd` (branch-create node before test-builder, clean-review auto-advance edge, 5-pass review label) and regenerate `workflow.svg` via `node scripts/render-workflow.mjs`
 
 ## 12. Verification
 
