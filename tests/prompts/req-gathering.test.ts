@@ -124,7 +124,7 @@ describe("prompts/req-gathering", () => {
 
     it("uses the new approval gate reminder (no ui.confirm gate)", () => {
       const prompt = buildReqGatheringPrompt(inputs);
-      expect(prompt).toContain("Self-check");
+      expect(prompt).toMatch(/orchestrator validates/i);
       expect(prompt).toContain("/feature approve");
       // The approval gate no longer instructs the LLM to call ui.confirm —
       // the orchestrator handles the gate via /feature approve.
@@ -226,7 +226,7 @@ describe("prompts/req-gathering", () => {
 
     it("uses the new approval gate reminder (no ui.confirm gate)", () => {
       const prompt = buildReqGatheringPrompt(inputs);
-      expect(prompt).toContain("Self-check");
+      expect(prompt).toMatch(/orchestrator validates/i);
       expect(prompt).toContain("/feature approve");
       expect(prompt).not.toContain('ui.confirm("Requirements approved?"');
     });

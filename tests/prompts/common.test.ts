@@ -58,23 +58,23 @@ describe("prompts/common", () => {
   });
 
   describe("templatePopulationReminder", () => {
-    it("instructs to replace placeholders and remove AI comments", () => {
+    it("instructs to replace placeholders and remove AI comments, and mentions orchestrator validation", () => {
       const lines = templatePopulationReminder();
       const text = lines.join("\n");
       expect(text).toMatch(/\{\{placeholder\}\}/);
       expect(text).toMatch(/<!-- AI/);
       expect(text).toMatch(/Replace every/);
-      expect(text).toMatch(/Remove every/);
+      expect(text).toMatch(/orchestrator validates/i);
     });
   });
 
   describe("interactiveApprovalReminder", () => {
-    it("describes the self-check the LLM must run", () => {
+    it("notes that the orchestrator validates the artifact on approve", () => {
       const lines = interactiveApprovalReminder("X approved");
       const text = lines.join("\n");
-      expect(text).toContain("Self-check");
-      expect(text).toMatch(/\{\{placeholder\}\}/);
-      expect(text).toMatch(/<!-- AI/);
+      expect(text).toMatch(/orchestrator validates/i);
+      expect(text).toMatch(/\{\{placeholder\}\}|placeholders/i);
+      expect(text).toMatch(/<!-- AI|AI comments/i);
     });
 
     it("describes the /feature approve and /feature reject flow", () => {

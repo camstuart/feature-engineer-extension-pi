@@ -19,9 +19,18 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
+import {
+  isHardBlocked,
+  OPTIONAL_HEADINGS,
+  validateArtifactContent,
+  type ArtifactValidationResult,
+} from "./approve-gate.js";
+import { readArtifact, readConfigFile, readTemplate } from "./files.js";
 import { checkInitialisation, ensureFeatureEngineerDir } from "./init.js";
 import {
   artifactFileDiskName,
+  configFileDiskName,
+  CONFIG_FILES,
   featureDirPath,
   getNextFeatureId,
   toSlug,
@@ -284,9 +293,208 @@ async function handleApprove(ctx: CmdCtx): Promise<void> {
     return;
   }
 
+  const gateOutcome = await runApproveGate(ctx, cur);
+  if (gateOutcome === "blocked") return;
+
   // If advancing INTO concern-severity, the prompt runs inline (handled by
   // advanceTo which dispatches to promptConcernSeverity for that step).
   await advanceTo(ctx, nextStep);
+}
+
+/** A single artifact file to validate at an interactive artifact-producing step. */
+interface ArtifactCheckTarget {
+  /** Human-readable label for notify messages, e.g. "01-requirement.md". */
+  label: string;
+  content: string | null;
+  templateContent: string | null;
+  optionalHeadings: readonly string[];
+}
+
+/**
+ * Resolves the artifact file(s) that must be validated before advancing out
+ * of `state.step`. Returns `[]` for steps that don't produce a user-reviewed
+ * artifact (the gate is then a no-op) — this covers both the automated
+ * skills (test-builder, impl-builder, review-completion, github) and any
+ * non-artifact UI steps.
+ *
+ * All file I/O happens here (not in `approve-gate.ts`, which stays a pure,
+ * ctx-free validation module).
+ */
+function artifactsForStep(
+  cwd: string,
+  state: FeatureState,
+): ArtifactCheckTarget[] {
+  switch (state.step) {
+    case "analyse-codebase":
+      return CONFIG_FILES.map((name) => ({
+        label: configFileDiskName(name),
+        content: readConfigFile(cwd, name),
+        templateContent: readTemplate("config", name),
+        optionalHeadings: OPTIONAL_HEADINGS[name] ?? [],
+      }));
+    case "req-gathering":
+      return [
+        {
+          label: artifactFileDiskName("requirement") ?? "01-requirement.md",
+          content: readArtifact(cwd, state.featureId, state.featureSlug, "requirement"),
+          templateContent: readTemplate("artifact", "requirement"),
+          optionalHeadings: OPTIONAL_HEADINGS["requirement"] ?? [],
+        },
+      ];
+    case "tech-design":
+      return [
+        {
+          label:
+            artifactFileDiskName("technical-architecture") ??
+            "03-technical-architecture.md",
+          content: readArtifact(
+            cwd,
+            state.featureId,
+            state.featureSlug,
+            "technical-architecture",
+          ),
+          templateContent: readTemplate("artifact", "technical-architecture"),
+          optionalHeadings: OPTIONAL_HEADINGS["technical-architecture"] ?? [],
+        },
+      ];
+    case "test-planning":
+      return [
+        {
+          label:
+            artifactFileDiskName("technical-plan-testing") ??
+            "04-technical-plan-testing.md",
+          content: readArtifact(
+            cwd,
+            state.featureId,
+            state.featureSlug,
+            "technical-plan-testing",
+          ),
+          templateContent: readTemplate("artifact", "technical-plan-testing"),
+          optionalHeadings: OPTIONAL_HEADINGS["technical-plan-testing"] ?? [],
+        },
+      ];
+    case "impl-planning":
+      return [
+        {
+          label:
+            artifactFileDiskName("technical-plan-implementation") ??
+            "05-technical-plan-implementation.md",
+          content: readArtifact(
+            cwd,
+            state.featureId,
+            state.featureSlug,
+            "technical-plan-implementation",
+          ),
+          templateContent: readTemplate(
+            "artifact",
+            "technical-plan-implementation",
+          ),
+          optionalHeadings:
+            OPTIONAL_HEADINGS["technical-plan-implementation"] ?? [],
+        },
+      ];
+    default:
+      return [];
+  }
+}
+
+/**
+ * Deterministic approve-gate check for interactive artifact-producing steps.
+ * Runs immediately before `advanceTo` in `handleApprove`.
+ *
+ * Returns `"blocked"` when the workflow must NOT advance (hard block on
+ * missing/placeholder/AI-comment content, or the user cancelled at the
+ * missing-headings confirmation) — the caller must `return` without calling
+ * `advanceTo`. Returns `"proceed"` otherwise (clean artifact, or the user
+ * confirmed "Approve anyway" past a missing-headings warning, or the step
+ * doesn't produce a gated artifact at all).
+ */
+async function runApproveGate(
+  ctx: CmdCtx,
+  state: FeatureState,
+): Promise<"blocked" | "proceed"> {
+  const targets = artifactsForStep(ctx.cwd, state);
+  if (targets.length === 0) return "proceed";
+
+  const results = targets.map((target) => ({
+    target,
+    result: validateArtifactContent(
+      target.content,
+      target.templateContent,
+      target.optionalHeadings,
+    ),
+  }));
+
+  const blocked = results.filter(({ result }) => isHardBlocked(result));
+  if (blocked.length > 0) {
+    const detail = blocked
+      .map(({ target, result }) => describeHardBlock(target.label, result))
+      .join("\n");
+    ctx.ui.notify(
+      `Feature Engineer: approve blocked — fix the following before advancing:\n${detail}`,
+      "error",
+    );
+    return "blocked";
+  }
+
+  const withMissingHeadings = results.filter(
+    ({ result }) => result.missingHeadings.length > 0,
+  );
+  if (withMissingHeadings.length > 0) {
+    const detail = withMissingHeadings
+      .map(
+        ({ target, result }) =>
+          `${target.label}: missing headings: ${result.missingHeadings.join(", ")}`,
+      )
+      .join("\n");
+
+    if (!ctx.hasUI) {
+      // Non-interactive automation can't be prompted — warn and proceed
+      // rather than blocking indefinitely on a condition it cannot resolve.
+      ctx.ui.notify(
+        `Feature Engineer: warning — ${detail}\n(non-interactive mode: proceeding automatically)`,
+        "warning",
+      );
+      return "proceed";
+    }
+
+    ctx.ui.notify(`Feature Engineer: warning —\n${detail}`, "warning");
+    const choice = await ctx.ui.select("Advance anyway?", [
+      "Approve anyway",
+      "Cancel — let me fix it",
+    ]);
+    if (choice === undefined || choice.startsWith("Cancel")) {
+      ctx.ui.notify(
+        "Feature Engineer: approve cancelled. Fix the missing headings and re-run /feature approve.",
+        "info",
+      );
+      return "blocked";
+    }
+  }
+
+  return "proceed";
+}
+
+/** Renders a hard-block detail line naming the file and its specific issue(s). */
+function describeHardBlock(
+  label: string,
+  result: ArtifactValidationResult,
+): string {
+  if (result.missing) {
+    return `- ${label}: file is missing.`;
+  }
+  const issues: string[] = [];
+  if (result.placeholderLines.length > 0) {
+    issues.push(
+      `contains placeholder marker(s): ${result.placeholderLines.map((l) => `\`${l}\``).join(", ")}`,
+    );
+  }
+  if (result.aiCommentLines.length > 0) {
+    issues.push(
+      `contains AI comment(s): ${result.aiCommentLines.map((l) => `\`${l}\``).join(", ")}`,
+    );
+  }
+  return `- ${label}: ${issues.join("; ")}`;
 }
 
 /**

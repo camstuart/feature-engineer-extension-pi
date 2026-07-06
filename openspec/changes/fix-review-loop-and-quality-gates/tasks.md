@@ -44,10 +44,10 @@
 
 ## 7. Deterministic approve gate
 
-- [ ] 7.1 Create an artifact validator (new `approve-gate.ts` or in `files.ts`): file exists; no `{{` markers; no `<!-- AI:` comments; `##` headings from the source template present, minus an optional-heading allowlist (`## Delta from Existing Architecture`)
-- [ ] 7.2 Wire into `handleApprove` in `index.ts` for interactive artifact steps: hard block (notify with file + offending lines) on missing/placeholder/AI-comment; `ui.confirm` on missing headings; analyse-codebase validates all six config files
-- [ ] 7.3 Shrink `templatePopulationReminder` and the `interactiveApprovalReminder` self-check in `prompts/common.ts` to a one-sentence note about orchestrator validation
-- [ ] 7.4 Add `tests/approve-gate.test.ts` (all block/warn/pass cases) and update `tests/prompts/common.test.ts`
+- [x] 7.1 Create an artifact validator (new `approve-gate.ts` or in `files.ts`): file exists; no `{{` markers; no `<!-- AI:` comments; `##` headings from the source template present, minus an optional-heading allowlist (`## Delta from Existing Architecture`)
+- [x] 7.2 Wire into `handleApprove` in `index.ts` for interactive artifact steps: hard block (notify with file + offending lines) on missing/placeholder/AI-comment; `ui.confirm` on missing headings; analyse-codebase validates all six config files
+- [x] 7.3 Shrink `templatePopulationReminder` and the `interactiveApprovalReminder` self-check in `prompts/common.ts` to a one-sentence note about orchestrator validation
+- [x] 7.4 Add `tests/approve-gate.test.ts` (all block/warn/pass cases) and update `tests/prompts/common.test.ts`
 
 ## 8. Red-phase verification after test-builder
 
