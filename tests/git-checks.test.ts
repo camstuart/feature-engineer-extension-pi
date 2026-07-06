@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  countCommitsSinceBase,
+  ensureBranchCheckedOut,
   parseGitStrategyConfig,
   resolveBranchName,
   runGitStrategyChecks,
@@ -212,6 +214,95 @@ Commit pattern: \`^(feat|fix): .+\`
         runGitStrategyChecks(cwd, config, { slug: "email-otp", id: 1 }),
       ).not.toThrow();
       expect(runGitStrategyChecks(cwd, config, { slug: "email-otp", id: 1 })).toEqual([]);
+    });
+  });
+
+  describe("ensureBranchCheckedOut", () => {
+    let cwd: string;
+
+    beforeEach(() => {
+      cwd = mkdtempSync(join(tmpdir(), "fe-git-checks-ensure-"));
+      initRepo(cwd);
+    });
+
+    afterEach(() => {
+      rmSync(cwd, { recursive: true, force: true });
+    });
+
+    it("no-ops when the branch is already current", () => {
+      const result = ensureBranchCheckedOut(cwd, "main");
+      expect(result).toEqual({ ok: true, branch: "main" });
+    });
+
+    it("checks out an existing-but-not-current branch without recreating it", () => {
+      git(cwd, ["checkout", "-q", "-b", "feature/existing"]);
+      writeFileSync(join(cwd, "marker.txt"), "x\n");
+      git(cwd, ["add", "."]);
+      git(cwd, ["commit", "-q", "-m", "feat: marker commit"]);
+      git(cwd, ["checkout", "-q", "main"]);
+
+      const result = ensureBranchCheckedOut(cwd, "feature/existing");
+      expect(result).toEqual({ ok: true, branch: "feature/existing" });
+      const current = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+        cwd,
+      })
+        .toString("utf8")
+        .trim();
+      expect(current).toBe("feature/existing");
+      // The prior commit is still there — proves it wasn't recreated.
+      expect(existsSync(join(cwd, "marker.txt"))).toBe(true);
+    });
+
+    it("creates a brand-new branch when it doesn't exist locally", () => {
+      const result = ensureBranchCheckedOut(cwd, "feature/brand-new");
+      expect(result).toEqual({ ok: true, branch: "feature/brand-new" });
+      const current = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+        cwd,
+      })
+        .toString("utf8")
+        .trim();
+      expect(current).toBe("feature/brand-new");
+    });
+
+    it("returns ok: false with a populated error message on git failure", () => {
+      // A branch name containing ".." is invalid per git-check-ref-format,
+      // so both the `show-ref` probe and the `checkout -b` attempt fail
+      // cleanly without mutating the working tree.
+      const result = ensureBranchCheckedOut(cwd, "feature/../etc");
+      expect(result.ok).toBe(false);
+      expect(result.branch).toBe("feature/../etc");
+      expect(result.error).toBeTruthy();
+      expect(typeof result.error).toBe("string");
+    });
+  });
+
+  describe("countCommitsSinceBase", () => {
+    let cwd: string;
+
+    beforeEach(() => {
+      cwd = mkdtempSync(join(tmpdir(), "fe-git-checks-commitcount-"));
+      initRepo(cwd);
+    });
+
+    afterEach(() => {
+      rmSync(cwd, { recursive: true, force: true });
+    });
+
+    it("returns 0 when no commits exist relative to the base branch", () => {
+      git(cwd, ["checkout", "-q", "-b", "feature/empty"]);
+      expect(countCommitsSinceBase(cwd, "main")).toBe(0);
+    });
+
+    it("returns the commit count relative to the base branch", () => {
+      git(cwd, ["checkout", "-q", "-b", "feature/with-commits"]);
+      writeFileSync(join(cwd, "a.txt"), "x\n");
+      git(cwd, ["add", "."]);
+      git(cwd, ["commit", "-q", "-m", "feat: add a"]);
+      expect(countCommitsSinceBase(cwd, "main")).toBe(1);
+    });
+
+    it("returns null when the base branch does not exist", () => {
+      expect(countCommitsSinceBase(cwd, "does-not-exist")).toBeNull();
     });
   });
 

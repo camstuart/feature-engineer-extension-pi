@@ -1,9 +1,21 @@
 /**
  * GitHub SKILL runner.
  *
- * Automated skill: creates a feature branch, commits per the project's git
- * strategy, pushes, opens a PR if `gh` is available, and updates
- * features-index.md. On completion the orchestrator is notified.
+ * Automated skill: the feature branch was already created/checked out by
+ * `index.ts`'s `handleApprove` on approving `impl-planning`, and all
+ * implementation commits were already made by earlier skills (impl-builder).
+ * This skill's job is reduced to: push the branch, open a PR if `gh` is
+ * available and the strategy calls for one, and update features-index.md.
+ * On completion the orchestrator is notified.
+ *
+ * Before starting the LLM session, the orchestrator deterministically
+ * verifies commits exist on the feature branch relative to the configured
+ * base branch (via `git-checks.ts`'s `countCommitsSinceBase`) — matching
+ * this codebase's established pattern (impl-builder's QA check,
+ * test-builder's red-phase check) of "orchestrator is authoritative for
+ * anything deterministic; don't trust the LLM to self-report." Zero commits
+ * is reported via `notify` and the skill returns `{ cancelled: true }`
+ * without ever starting a session.
  *
  * The orchestrator detects `gh` CLI availability (via `sessionManager.exec`)
  * and passes the boolean to the prompt as a literal fact — the LLM is not
@@ -14,6 +26,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { execFileSync } from "node:child_process";
 import { readArtifact, readConfigFile } from "../files.js";
 import { todayIso } from "../dates.js";
+import { countCommitsSinceBase, parseGitStrategyConfig } from "../git-checks.js";
 import { featureIndexPath } from "../paths.js";
 import { buildGithubPrompt } from "../prompts/github.js";
 import { type FeatureState } from "../state.js";
@@ -60,6 +73,21 @@ export async function runGithub(
     ctx.ui.notify("Feature Engineer: requirement.md is missing.", "error");
     return { cancelled: true };
   }
+
+  const config = parseGitStrategyConfig(gitStrategy);
+  const commitCount = countCommitsSinceBase(cwd, config.baseBranch);
+  if (commitCount === 0) {
+    ctx.ui.notify(
+      `Feature Engineer: no commits found on the feature branch relative to ${config.baseBranch}. Commit the implementation work, then re-approve to push and open a PR.`,
+      "error",
+    );
+    return { cancelled: true };
+  }
+  // `commitCount === null` means the check couldn't be determined (e.g. the
+  // base branch doesn't exist locally, or cwd isn't a git repo) — a
+  // degraded-capability situation, not a real "no commits" finding, so we
+  // proceed anyway (matches git-checks.ts's own graceful-degradation
+  // philosophy).
 
   const ghAvailable = isGhAvailable();
 

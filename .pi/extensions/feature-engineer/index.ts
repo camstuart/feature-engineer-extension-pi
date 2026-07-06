@@ -26,6 +26,11 @@ import {
   type ArtifactValidationResult,
 } from "./approve-gate.js";
 import { readArtifact, readConfigFile, readTemplate } from "./files.js";
+import {
+  ensureBranchCheckedOut,
+  parseGitStrategyConfig,
+  resolveBranchName,
+} from "./git-checks.js";
 import { checkInitialisation, ensureFeatureEngineerDir } from "./init.js";
 import {
   artifactFileDiskName,
@@ -295,6 +300,33 @@ async function handleApprove(ctx: CmdCtx): Promise<void> {
 
   const gateOutcome = await runApproveGate(ctx, cur);
   if (gateOutcome === "blocked") return;
+
+  // On approving impl-planning (before test-builder starts), ensure the
+  // feature branch exists and is checked out. Runs after the artifact gate
+  // (cheap, no side effects) so we don't touch git for an invalid artifact.
+  if (cur.step === "impl-planning") {
+    const gitStrategy = readConfigFile(ctx.cwd, "git-strategy");
+    if (gitStrategy !== null) {
+      const config = parseGitStrategyConfig(gitStrategy);
+      const branchName = resolveBranchName(config.branchPattern, {
+        slug: cur.featureSlug,
+        id: cur.featureId,
+      });
+      const branchResult = ensureBranchCheckedOut(ctx.cwd, branchName);
+      if (!branchResult.ok) {
+        ctx.ui.notify(
+          `Feature Engineer: failed to create/checkout branch "${branchName}": ${branchResult.error}`,
+          "error",
+        );
+        return; // Stay at impl-planning; the user resolves the git issue and re-approves.
+      }
+    }
+    // If gitStrategy.md is missing, skip branch creation silently — nothing
+    // to configure against, and blocking here would be worse than
+    // proceeding without a dedicated branch (matches this codebase's
+    // established graceful-degradation philosophy for missing optional
+    // capabilities).
+  }
 
   // If advancing INTO concern-severity, the prompt runs inline (handled by
   // advanceTo which dispatches to promptConcernSeverity for that step).

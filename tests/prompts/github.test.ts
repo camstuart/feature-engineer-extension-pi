@@ -74,8 +74,29 @@ describe("prompts/github", () => {
     expect(prompt).toMatch(/DONE \| BLOCKED/);
   });
 
-  it("instructs the agent to verify the commit with git log -1", () => {
+  it("states the orchestrator already created and checked out the branch", () => {
     const prompt = buildGithubPrompt(BASE_INPUTS);
-    expect(prompt).toContain("git log -1");
+    expect(prompt).toMatch(/orchestrator has already created and checked out the feature branch/i);
+  });
+
+  it("does not instruct the agent to create a branch (only forbids it)", () => {
+    const prompt = buildGithubPrompt(BASE_INPUTS);
+    expect(prompt).toMatch(/do \*\*not\*\* run `git checkout -b`/i);
+    expect(prompt).not.toMatch(/\*\*Branch\*\*: create and check out/i);
+  });
+
+  it("does not instruct the agent to create commits", () => {
+    const prompt = buildGithubPrompt(BASE_INPUTS);
+    expect(prompt).not.toMatch(/git commit -m|stage the changes and commit/i);
+    expect(prompt).toMatch(/do \*\*not\*\* run `git commit`/i);
+  });
+
+  it("process steps cover only push, PR, and index update", () => {
+    const prompt = buildGithubPrompt(BASE_INPUTS);
+    expect(prompt).toMatch(/1\. \*\*Push\*\*/);
+    expect(prompt).toMatch(/2\. \*\*PR\*\*/);
+    expect(prompt).toMatch(/3\. \*\*Update index\*\*/);
+    expect(prompt).not.toMatch(/\*\*Branch\*\*: create/);
+    expect(prompt).not.toMatch(/\*\*Commit\*\*: stage/);
   });
 });

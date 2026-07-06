@@ -1,8 +1,10 @@
 /**
  * GitHub skill prompt builder.
  *
- * Automated skill: creates a feature branch, commits per the project's git
- * strategy, pushes, and updates features-index.md. PR creation is gated on
+ * Automated skill: the orchestrator has already created/checked out the
+ * feature branch and all implementation commits already exist (made by
+ * earlier skills). This prompt's job is reduced to pushing the branch,
+ * opening a PR, and updating features-index.md. PR creation is gated on
  * whether the `gh` CLI is available — the orchestrator detects this and
  * passes the boolean to the prompt.
  */
@@ -42,6 +44,13 @@ export function buildGithubPrompt(inputs: GithubPromptInputs): string {
     "",
     `You will wrap up feature **${idLabel}** (${state.featureSlug}) by following the project's git strategy exactly, then updating the features index.`,
     "",
+    "## Already done — do NOT redo this",
+    "",
+    "The orchestrator has already created and checked out the feature branch, and all implementation commits were already made by earlier skills (impl-builder). Your job here is ONLY to push, optionally open a PR, and update the features index.",
+    "",
+    "- Do **NOT** run `git checkout -b` or otherwise create/rename a branch.",
+    "- Do **NOT** run `git commit` or create any new commits.",
+    "",
     `## \`gh\` CLI availability`,
     "",
     ghAvailable
@@ -57,11 +66,9 @@ export function buildGithubPrompt(inputs: GithubPromptInputs): string {
     "",
     "## Process",
     "",
-    "1. **Branch**: create and check out a feature branch per the strategy (e.g. `feature/<slug>`). Use `git checkout -b` or follow the exact pattern from `06-git-strategy.md`.",
-    "2. **Commit**: stage the changes and commit using the project's commit message format from `06-git-strategy.md`. Include the feature slug and a short description. After `git commit`, verify with `git log -1` that the commit landed. If it did not, stop and report the failure to the orchestrator.",
-    "3. **Push**: push the branch to origin. If the push is rejected, stop and report — do not retry with destructive flags.",
-    "4. **PR**: if `gh` is available AND the strategy calls for a PR, open one with the required title format and labels from `06-git-strategy.md`. Skip if either condition is false.",
-    "5. **Update index**: append a new row to `features-index.md` using the exact format below. Replace `<one-line description>` with the first non-blank line of `01-requirement.md` (or a 5-10 word summary if that line is a heading).",
+    "1. **Push**: push the current branch (already checked out by the orchestrator) to origin. If the push is rejected, stop and report — do not retry with destructive flags.",
+    "2. **PR**: if `gh` is available AND the strategy calls for a PR, open one with the required title format and labels from `06-git-strategy.md`. Skip if either condition is false.",
+    "3. **Update index**: append a new row to `features-index.md` using the exact format below. Replace `<one-line description>` with the first non-blank line of `01-requirement.md` (or a 5-10 word summary if that line is a heading).",
     "",
     "## Features Index Row Format",
     "",
@@ -82,15 +89,16 @@ export function buildGithubPrompt(inputs: GithubPromptInputs): string {
     "",
     "- Never use `--force` or `--force-with-lease` on shared branches (anything other than your own feature branch).",
     "- Never edit a test file or modify QA tool configuration to make a failing check pass.",
-    "- If any git step fails (branch exists, push rejected, hook failure), report the failure to the orchestrator via `ui.notify` and stop. Do not silently retry destructive operations.",
+    "- Never create a new branch or a new commit — both are already done. If git reports unexpected local changes or a detached branch state, stop and report rather than committing or branching yourself.",
+    "- If any git step fails (push rejected, hook failure), report the failure to the orchestrator via `ui.notify` and stop. Do not silently retry destructive operations.",
     "",
     "## Final Message",
     "",
     "When complete, your final assistant message must be a short structured summary:",
     "",
     "```",
-    "Branch: <name>",
-    "Commits: <count>",
+    "Branch: <name of the pre-existing branch that was pushed>",
+    "Commits: <observed count already on the branch — you did not create these>",
     "PR: <URL or 'none (gh not available)' or 'skipped per 06-git-strategy.md'>",
     "Index: <updated|created>",
     "Status: DONE | BLOCKED",

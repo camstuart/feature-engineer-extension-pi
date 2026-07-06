@@ -13,12 +13,13 @@
  * Design note — reusability for branch creation (Task 9):
  * `parseGitStrategyConfig` and `resolveBranchName` are pure, generic
  * "compute the expected branch name" helpers with no notion of "checking"
- * baked into their names or behaviour. A later feature (branch lifecycle
- * automation) creates the feature branch up front using the exact same
- * parsing + substitution logic. Only `runGitStrategyChecks` and
- * `writeGitStrategyFindings` are specific to the review-completion
- * diagnostic/concern-reporting use case; keep it that way so Task 9 can
- * import the pure helpers without pulling in review-formatting concerns.
+ * baked into their names or behaviour. `index.ts`'s `handleApprove` reuses
+ * them, together with `ensureBranchCheckedOut`, to create/checkout the
+ * feature branch up front (on approving `impl-planning`) using the exact
+ * same parsing + substitution logic. The github skill (`skills/github.ts`)
+ * separately reuses `countCommitsSinceBase` to verify commits exist before
+ * pushing. Only `runGitStrategyChecks` and `writeGitStrategyFindings` are
+ * specific to the review-completion diagnostic/concern-reporting use case.
  *
  * Judgment call — "base branch" default:
  * The spec requires checking "at least one commit exists on the feature
@@ -143,12 +144,12 @@ export function runGitStrategyChecks(
     }
   }
 
-  if (!baseBranchExists(cwd, config.baseBranch)) {
+  if (!branchExistsLocally(cwd, config.baseBranch)) {
     // Degraded capability, not a strategy violation — skip silently.
     return concerns;
   }
 
-  const commitCount = getCommitCount(cwd, config.baseBranch);
+  const commitCount = countCommitsSinceBase(cwd, config.baseBranch);
   if (commitCount === null) {
     // Couldn't determine commit count for some other reason; skip silently.
     return concerns;
@@ -202,9 +203,64 @@ function getCurrentBranch(cwd: string): string | null {
   }
 }
 
-function baseBranchExists(cwd: string, baseBranch: string): boolean {
+/** Result of {@link ensureBranchCheckedOut}. */
+export interface EnsureBranchResult {
+  ok: boolean;
+  branch: string;
+  /** Trimmed stderr/error message when `ok` is false. */
+  error?: string;
+}
+
+/**
+ * Ensures `branchName` is checked out in the working tree: no-ops if
+ * already current, checks it out if it exists locally (e.g. from a prior
+ * review cycle), or creates it fresh with `git checkout -b`.
+ *
+ * Never throws — git failures are captured and returned in the result so
+ * the caller (`index.ts`'s `handleApprove`) can notify the user and keep
+ * the workflow parked at `impl-planning` rather than silently proceeding
+ * with the wrong branch checked out.
+ */
+export function ensureBranchCheckedOut(cwd: string, branchName: string): EnsureBranchResult {
+  const current = getCurrentBranch(cwd);
+  if (current === branchName) return { ok: true, branch: branchName };
+
+  const exists = branchExistsLocally(cwd, branchName);
   try {
-    execFileSync("git", ["show-ref", "--verify", "--quiet", `refs/heads/${baseBranch}`], {
+    if (exists) {
+      execFileSync("git", ["checkout", branchName], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    } else {
+      execFileSync("git", ["checkout", "-b", branchName], {
+        cwd,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    }
+    return { ok: true, branch: branchName };
+  } catch (e) {
+    const err = e as NodeJS.ErrnoException & { stderr?: Buffer | string };
+    const stderr =
+      err.stderr === undefined
+        ? ""
+        : Buffer.isBuffer(err.stderr)
+          ? err.stderr.toString("utf8")
+          : err.stderr;
+    return {
+      ok: false,
+      branch: branchName,
+      error: (stderr || err.message || "unknown git error").trim(),
+    };
+  }
+}
+
+/**
+ * Checks whether `branchName` exists as a local branch ref. Despite the
+ * historical name, this is generic — used both for base-branch existence
+ * checks (above, in `runGitStrategyChecks`) and for feature-branch existence
+ * checks (`ensureBranchCheckedOut`, Task 9).
+ */
+function branchExistsLocally(cwd: string, branchName: string): boolean {
+  try {
+    execFileSync("git", ["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`], {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -214,7 +270,17 @@ function baseBranchExists(cwd: string, baseBranch: string): boolean {
   }
 }
 
-function getCommitCount(cwd: string, baseBranch: string): number | null {
+/**
+ * Returns the number of commits on `HEAD` relative to `baseBranch`
+ * (`git rev-list --count <baseBranch>..HEAD`), or `null` if it could not be
+ * determined (e.g. `baseBranch` doesn't exist locally, not a git repo).
+ *
+ * Exported for reuse by the github skill's deterministic pre-check (Task 9):
+ * it verifies commits exist on the feature branch before starting the LLM
+ * session, without pulling in the full `runGitStrategyChecks`
+ * diagnostic/concern-formatting pipeline.
+ */
+export function countCommitsSinceBase(cwd: string, baseBranch: string): number | null {
   try {
     const out = execFileSync("git", ["rev-list", "--count", `${baseBranch}..HEAD`], {
       cwd,
