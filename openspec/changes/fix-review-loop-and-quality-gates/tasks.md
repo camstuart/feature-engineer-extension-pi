@@ -76,6 +76,6 @@
 
 ## 12. Verification
 
-- [ ] 12.1 `pnpm typecheck` — zero errors
-- [ ] 12.2 `pnpm test` — full suite green, including new suites (approve gate, git checks, rotation, red-phase)
+- [x] 12.1 `pnpm typecheck` — zero errors
+- [x] 12.2 `pnpm test` — full suite green, including new suites (approve gate, git checks, rotation, red-phase)
 - [ ] 12.3 Manual smoke test via `pi -e ./.pi/extensions/feature-engineer/index.ts`: full happy path on a scratch project, one MINOR review loop (verify concerns injected + rotation), one clean review (verify auto-advance), one approve with a planted `{{placeholder}}` (verify hard block)
