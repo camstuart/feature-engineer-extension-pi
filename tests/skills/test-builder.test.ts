@@ -7,6 +7,7 @@
  * the same faking style used for `startSkillSession` in `tests/runner.test.ts`.
  */
 
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -65,6 +66,35 @@ function writeInputs(cwd: string): void {
   writeFileSync(
     join(featDir, artifactFileDiskName("technical-plan-implementation")!),
     "impl plan content",
+  );
+}
+
+/**
+ * Initialises a real git repo in `dir` with a `main` branch (one commit)
+ * and a `feature/foo` branch checked out with one additional commit ahead
+ * of `main` — simulating a prior build cycle's implementation already
+ * committed to the branch (the ARCH-reloop scenario). Also writes
+ * `06-git-strategy.md` so `countCommitsSinceBase` has a base branch to
+ * diff against.
+ */
+function initGitRepoWithExistingImplementation(dir: string): void {
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd: dir, stdio: "ignore" });
+  git("init", "-b", "main");
+  git("config", "user.email", "test@example.com");
+  git("config", "user.name", "Test");
+  writeFileSync(join(dir, "base.txt"), "base\n");
+  git("add", "base.txt");
+  git("commit", "-m", "base commit");
+  git("checkout", "-b", "feature/foo");
+  writeFileSync(join(dir, "impl.txt"), "impl\n");
+  git("add", "impl.txt");
+  git("commit", "-m", "prior cycle's implementation");
+
+  const feBase = join(dir, ".feature-engineer");
+  writeFileSync(
+    join(feBase, configFileDiskName("git-strategy")),
+    "# Git Strategy\n\nBase branch: `main`\n",
   );
 }
 
@@ -218,5 +248,32 @@ describe("skills/test-builder — red-phase gate", () => {
     // "All QA tools passed." fallback.
     expect(pauseNotification).toContain(VACUOUS_PASS_MARKER);
     expect(pauseNotification).not.toContain("All QA tools passed.");
+  });
+
+  it("advances cleanly (does not retry/pause) when commits already exist since the base branch and tests pass (ARCH-reloop scenario)", async () => {
+    // No marker: test command exits 0 (pass). On a genuine first cycle this
+    // would be a "tests-passed" violation, but here commits already exist
+    // on the branch relative to `main` — simulating a second pass through
+    // Test Builder after an ARCHITECTURAL review concern routed back
+    // through tech-design. The red-phase gate must NOT treat this as a
+    // violation.
+    initGitRepoWithExistingImplementation(cwd);
+
+    let completed = false;
+    let turns = 0;
+
+    const { ctx } = makeFakeCtx(() => {
+      turns += 1;
+    });
+
+    const result = await runTestBuilder(ctx, STATE, {
+      onComplete: async () => {
+        completed = true;
+      },
+    });
+
+    expect(result.cancelled).toBe(false);
+    expect(completed).toBe(true);
+    expect(turns).toBe(1);
   });
 });

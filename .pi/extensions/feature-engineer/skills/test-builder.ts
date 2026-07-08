@@ -11,10 +11,24 @@
  * workflow pauses at `step: "test-builder"` — the LLM is not advanced
  * automatically, and a subsequent `/feature` re-runs Test Builder from
  * scratch.
+ *
+ * The "tests must fail" half of that invariant only holds on a feature's
+ * FIRST build cycle. When an ARCHITECTURAL review concern routes back
+ * through tech-design → test-planning → impl-planning → test-builder, a
+ * prior cycle's implementation is still on disk, so revised tests may
+ * legitimately already pass. Before invoking `checkRedPhase`, this runner
+ * checks `countCommitsSinceBase` (`git-checks.ts`) — commits already on the
+ * branch relative to the configured base branch are positive evidence that
+ * an implementation exists, and in that case `checkRedPhase` is called with
+ * `enforceTestsMustFail: false` so a passing test run is not treated as a
+ * violation. The type-check-must-pass requirement is unaffected. When the
+ * commit count can't be determined (missing config, missing base branch,
+ * not a git repo), this falls back to the original full enforcement.
  */
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { readArtifact, readConfigFile } from "../files.js";
+import { countCommitsSinceBase, parseGitStrategyConfig } from "../git-checks.js";
 import {
   checkRedPhase,
   formatCommandOutput,
@@ -69,6 +83,23 @@ export async function runTestBuilder(
 
   const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
   const qaCommands = parseQAStaticTools(qaStaticTools);
+
+  // Determine whether an implementation from a PRIOR build cycle already
+  // exists on this branch (e.g. an ARCHITECTURAL review concern routed the
+  // workflow back through tech-design → test-planning → impl-planning →
+  // test-builder a second time). If so, the red-phase "tests must fail"
+  // invariant no longer holds meaningfully — see `checkRedPhase`'s
+  // `enforceTestsMustFail` doc comment. Only skip the enforcement on
+  // POSITIVE evidence (commit count > 0); any degraded/undeterminable case
+  // (missing git-strategy.md, missing base branch, not a git repo) falls
+  // back to the original full enforcement.
+  const gitStrategy = readConfigFile(cwd, "git-strategy");
+  let hasExistingImplementation = false;
+  if (gitStrategy !== null) {
+    const gitStrategyConfig = parseGitStrategyConfig(gitStrategy);
+    const commitCount = countCommitsSinceBase(cwd, gitStrategyConfig.baseBranch);
+    hasExistingImplementation = commitCount !== null && commitCount > 0;
+  }
   const prompt = buildTestBuilderPrompt({
     architecture,
     testPlan,
@@ -114,7 +145,9 @@ export async function runTestBuilder(
       {
         finalCompactInstructions,
         onLlmTurnEnd: async (sCtx) => {
-          lastViolation = checkRedPhase(sCtx.cwd, qaCommands);
+          lastViolation = checkRedPhase(sCtx.cwd, qaCommands, {
+            enforceTestsMustFail: !hasExistingImplementation,
+          });
         },
       },
     );

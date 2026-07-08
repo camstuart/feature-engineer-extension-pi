@@ -348,5 +348,43 @@ Coverage threshold: 75%
       });
       expect(violation?.kind).toBe("typecheck-failed");
     });
+
+    it("does NOT report tests-passed when enforceTestsMustFail is false (ARCH-reloop, implementation already exists)", () => {
+      const dir = mkdtempSync(join(tmpdir(), "fe-redphase-"));
+      const violation = checkRedPhase(
+        dir,
+        {
+          ...NO_COMMANDS,
+          typecheck: "true",
+          test: "true",
+        },
+        { enforceTestsMustFail: false },
+      );
+      expect(violation).toBeNull();
+    });
+
+    it("still reports typecheck-failed when enforceTestsMustFail is false", () => {
+      const dir = mkdtempSync(join(tmpdir(), "fe-redphase-"));
+      const violation = checkRedPhase(
+        dir,
+        {
+          ...NO_COMMANDS,
+          typecheck: "false",
+          test: "true",
+        },
+        { enforceTestsMustFail: false },
+      );
+      expect(violation?.kind).toBe("typecheck-failed");
+    });
+
+    it("still reports tests-passed by default (enforceTestsMustFail unset) — regression guard for first-cycle behaviour", () => {
+      const dir = mkdtempSync(join(tmpdir(), "fe-redphase-"));
+      const violation = checkRedPhase(dir, {
+        ...NO_COMMANDS,
+        typecheck: "true",
+        test: "true",
+      });
+      expect(violation?.kind).toBe("tests-passed");
+    });
   });
 });

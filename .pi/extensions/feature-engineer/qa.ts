@@ -259,6 +259,27 @@ export type RedPhaseViolation =
   | { kind: "typecheck-failed"; result: QARunResult }
   | { kind: "tests-passed"; result: QARunResult };
 
+export interface CheckRedPhaseOptions extends RunQAOptions {
+  /**
+   * Whether a passing test run (exit code 0) should be treated as a
+   * red-phase violation. Defaults to `true` — the standard TDD invariant
+   * that tests must fail before the implementation exists.
+   *
+   * Set this to `false` when an implementation from a PRIOR build cycle
+   * already exists on the branch — e.g. an `ARCHITECTURAL` review concern
+   * routed the workflow back through `tech-design → test-planning →
+   * impl-planning → test-builder` a second time, and this is not the
+   * feature's first pass through Test Builder. On that second pass, the
+   * revised/new tests may legitimately already pass against the existing
+   * implementation (the ARCH concern may have been about structure/reuse,
+   * not behaviour), so "tests must fail" is no longer a meaningful
+   * correctness signal and would otherwise trigger a spurious retry/pause.
+   * The type-check-must-pass requirement is unaffected by this flag and is
+   * always enforced, regardless of cycle.
+   */
+  enforceTestsMustFail?: boolean;
+}
+
 /**
  * Verifies the Test Builder skill's red-phase invariant after it writes
  * test files: the type-checker (if configured) must exit 0, and the test
@@ -267,14 +288,18 @@ export type RedPhaseViolation =
  * unreliable while the files don't even parse.
  *
  * Returns `null` when both invariants hold, or when neither command is
- * configured in `04-qa-static-tools.md` (nothing to check).
+ * configured in `04-qa-static-tools.md` (nothing to check). When
+ * `options.enforceTestsMustFail` is `false`, a passing test run is treated
+ * as satisfying the invariant rather than violating it (see
+ * {@link CheckRedPhaseOptions.enforceTestsMustFail}).
  */
 export function checkRedPhase(
   cwd: string,
   commands: QACommands,
-  options: RunQAOptions = {},
+  options: CheckRedPhaseOptions = {},
 ): RedPhaseViolation | null {
   const timeoutMs = options.timeoutMs ?? 120_000;
+  const enforceTestsMustFail = options.enforceTestsMustFail ?? true;
 
   if (commands.typecheck !== null) {
     const result = runOne(cwd, commands.typecheck, timeoutMs);
@@ -285,7 +310,7 @@ export function checkRedPhase(
 
   if (commands.test !== null) {
     const result = runOne(cwd, commands.test, timeoutMs);
-    if (result.exitCode === 0) {
+    if (result.exitCode === 0 && enforceTestsMustFail) {
       return { kind: "tests-passed", result };
     }
   }

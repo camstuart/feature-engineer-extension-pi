@@ -29,6 +29,7 @@ const STEP_SET: ReadonlySet<string> = new Set<string>(FEATURE_STEPS);
  *  - `requirementMode` (optional) must be a valid RequirementMode when present.
  *  - `requirementVersion` (optional) must be a positive integer when present.
  *  - `implFailed` (optional) must be a boolean when present.
+ *  - `reviewConcerns` (optional) must be a string when present.
  */
 export function isPersistedState(value: unknown): value is PersistedFeatureState {
   if (value === null || typeof value !== "object") return false;
@@ -74,6 +75,14 @@ export function isPersistedState(value: unknown): value is PersistedFeatureState
     return false;
   }
 
+  if (
+    "reviewConcerns" in v &&
+    v.reviewConcerns !== undefined &&
+    typeof v.reviewConcerns !== "string"
+  ) {
+    return false;
+  }
+
   return true;
 }
 
@@ -96,6 +105,9 @@ export function encodeState(state: FeatureState): PersistedFeatureState {
   }
   if (state.implFailed !== undefined) {
     out.implFailed = state.implFailed;
+  }
+  if (state.reviewConcerns !== undefined) {
+    out.reviewConcerns = state.reviewConcerns;
   }
   return out;
 }

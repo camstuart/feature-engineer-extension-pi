@@ -125,6 +125,29 @@ describe("persistence", () => {
       };
       expect("implFailed" in encodeState(state)).toBe(false);
     });
+
+    it("preserves optional reviewConcerns", () => {
+      const state: FeatureState = {
+        featureId: 5,
+        featureSlug: "x",
+        featureDir: "/abs/path",
+        step: "impl-builder",
+        reviewConcerns: "Tighten error handling in the retry loop",
+      };
+      expect(encodeState(state).reviewConcerns).toBe(
+        "Tighten error handling in the retry loop",
+      );
+    });
+
+    it("omits reviewConcerns when not set", () => {
+      const state: FeatureState = {
+        featureId: 5,
+        featureSlug: "x",
+        featureDir: "/abs/path",
+        step: "impl-builder",
+      };
+      expect("reviewConcerns" in encodeState(state)).toBe(false);
+    });
   });
 
   describe("nextStepFor", () => {
@@ -343,6 +366,28 @@ describe("persistence", () => {
         featureDir: "/abs",
         step: "impl-builder",
         implFailed: "yes",
+      };
+      expect(isPersistedState(bad)).toBe(false);
+    });
+
+    it("accepts persisted state with valid reviewConcerns string", () => {
+      const valid: PersistedFeatureState = {
+        featureId: 1,
+        featureSlug: "x",
+        featureDir: "/abs",
+        step: "impl-builder",
+        reviewConcerns: "Address the MINOR concerns from review",
+      };
+      expect(isPersistedState(valid)).toBe(true);
+    });
+
+    it("rejects persisted state with non-string reviewConcerns", () => {
+      const bad = {
+        featureId: 1,
+        featureSlug: "x",
+        featureDir: "/abs",
+        step: "impl-builder",
+        reviewConcerns: 123,
       };
       expect(isPersistedState(bad)).toBe(false);
     });
