@@ -47,11 +47,7 @@ export function templatePopulationReminder(): string[] {
     "",
     "**Template Population Reminder**",
     "",
-    "The output template contains authoring scaffolding that must be removed from the final file:",
-    "",
-    "- Replace every `{{placeholder}}` marker with concrete content. The placeholders are authoring aids, not literal text to keep.",
-    "- Remove every `<!-- AI: ... -->` comment line once you have used the guidance it provides.",
-    "- Every section header from the template must appear in the output, with content specific to this feature. Do not leave any section blank or filled with placeholder filler.",
+    "Replace every `{{placeholder}}` marker and remove every `<!-- AI: ... -->` comment before finishing — for interactive skills, the orchestrator validates this deterministically when the user runs `/feature approve` and will block advancement if either remains; write clean output regardless of which skill you're in.",
   ];
 }
 
@@ -69,16 +65,11 @@ export function interactiveApprovalReminder(skillLabel: string): string[] {
     "",
     "When you have written the artifact:",
     "",
-    "1. Run the self-check below. Fix any failures before continuing.",
+    "1. Write a clean, complete document — no placeholder filler, no truncation.",
     "2. Tell the user the output path and the section headings you populated.",
     "3. End your turn. Do not call any further tools.",
     "",
-    "**Self-check before declaring done:**",
-    "",
-    "- Every section header from the template is present in the output.",
-    "- No `{{placeholder}}` markers and no `<!-- AI: ... -->` comments remain.",
-    "- Every section has content specific to this feature (no placeholder filler or `TBD` notes).",
-    "- The file is readable end-to-end with no truncation.",
+    "The orchestrator validates the artifact automatically when the user runs `/feature approve` (no leftover placeholders/AI comments, all template headings present) — you do not need to self-verify this manually, but write a clean, complete document the first time.",
     "",
     "**User workflow:**",
     "",
@@ -103,6 +94,12 @@ export function automatedSkillReminder(): string[] {
 export function revisionFeedbackBlock(feedback: string | null | undefined): string[] {
   if (!feedback || feedback.trim().length === 0) return [];
   return ["", "## Revision Feedback", "", feedback.trim()];
+}
+
+/** Renders the review-concerns block when present (from a MINOR/ARCH severity-gate routing). */
+export function reviewConcernsBlock(concerns: string | null | undefined): string[] {
+  if (!concerns || concerns.trim().length === 0) return [];
+  return ["", "## Review Concerns To Address", "", concerns.trim()];
 }
 
 /** Renders the existing-artifact block when present. */

@@ -19,17 +19,33 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
+import {
+  isHardBlocked,
+  OPTIONAL_HEADINGS,
+  validateArtifactContent,
+  type ArtifactValidationResult,
+} from "./approve-gate.js";
+import { readArtifact, readConfigFile, readTemplate } from "./files.js";
+import {
+  ensureBranchCheckedOut,
+  parseGitStrategyConfig,
+  resolveBranchName,
+} from "./git-checks.js";
 import { checkInitialisation, ensureFeatureEngineerDir } from "./init.js";
 import {
   artifactFileDiskName,
+  configFileDiskName,
+  CONFIG_FILES,
   featureDirPath,
   getNextFeatureId,
   toSlug,
 } from "./paths.js";
 import { latestState } from "./persistence.js";
 import {
+  formatConcernSummary,
   isRejectionSource,
   isValidSeverity,
+  parseConcernCounts,
   parseRequirementMode,
   parseSubcommand,
   REQUIREMENT_MODE_CHOICES,
@@ -282,9 +298,237 @@ async function handleApprove(ctx: CmdCtx): Promise<void> {
     return;
   }
 
+  const gateOutcome = await runApproveGate(ctx, cur);
+  if (gateOutcome === "blocked") return;
+
+  // On approving impl-planning (before test-builder starts), ensure the
+  // feature branch exists and is checked out. Runs after the artifact gate
+  // (cheap, no side effects) so we don't touch git for an invalid artifact.
+  if (cur.step === "impl-planning") {
+    const gitStrategy = readConfigFile(ctx.cwd, "git-strategy");
+    if (gitStrategy !== null) {
+      const config = parseGitStrategyConfig(gitStrategy);
+      const branchName = resolveBranchName(config.branchPattern, {
+        slug: cur.featureSlug,
+        id: cur.featureId,
+      });
+      const branchResult = ensureBranchCheckedOut(ctx.cwd, branchName);
+      if (!branchResult.ok) {
+        ctx.ui.notify(
+          `Feature Engineer: failed to create/checkout branch "${branchName}": ${branchResult.error}`,
+          "error",
+        );
+        return; // Stay at impl-planning; the user resolves the git issue and re-approves.
+      }
+    }
+    // If gitStrategy.md is missing, skip branch creation silently — nothing
+    // to configure against, and blocking here would be worse than
+    // proceeding without a dedicated branch (matches this codebase's
+    // established graceful-degradation philosophy for missing optional
+    // capabilities).
+  }
+
   // If advancing INTO concern-severity, the prompt runs inline (handled by
   // advanceTo which dispatches to promptConcernSeverity for that step).
   await advanceTo(ctx, nextStep);
+}
+
+/** A single artifact file to validate at an interactive artifact-producing step. */
+interface ArtifactCheckTarget {
+  /** Human-readable label for notify messages, e.g. "01-requirement.md". */
+  label: string;
+  content: string | null;
+  templateContent: string | null;
+  optionalHeadings: readonly string[];
+}
+
+/**
+ * Resolves the artifact file(s) that must be validated before advancing out
+ * of `state.step`. Returns `[]` for steps that don't produce a user-reviewed
+ * artifact (the gate is then a no-op) — this covers both the automated
+ * skills (test-builder, impl-builder, review-completion, github) and any
+ * non-artifact UI steps.
+ *
+ * All file I/O happens here (not in `approve-gate.ts`, which stays a pure,
+ * ctx-free validation module).
+ */
+function artifactsForStep(
+  cwd: string,
+  state: FeatureState,
+): ArtifactCheckTarget[] {
+  switch (state.step) {
+    case "analyse-codebase":
+      return CONFIG_FILES.map((name) => ({
+        label: configFileDiskName(name),
+        content: readConfigFile(cwd, name),
+        templateContent: readTemplate("config", name),
+        optionalHeadings: OPTIONAL_HEADINGS[name] ?? [],
+      }));
+    case "req-gathering":
+      return [
+        {
+          label: artifactFileDiskName("requirement") ?? "01-requirement.md",
+          content: readArtifact(cwd, state.featureId, state.featureSlug, "requirement"),
+          templateContent: readTemplate("artifact", "requirement"),
+          optionalHeadings: OPTIONAL_HEADINGS["requirement"] ?? [],
+        },
+      ];
+    case "tech-design":
+      return [
+        {
+          label:
+            artifactFileDiskName("technical-architecture") ??
+            "03-technical-architecture.md",
+          content: readArtifact(
+            cwd,
+            state.featureId,
+            state.featureSlug,
+            "technical-architecture",
+          ),
+          templateContent: readTemplate("artifact", "technical-architecture"),
+          optionalHeadings: OPTIONAL_HEADINGS["technical-architecture"] ?? [],
+        },
+      ];
+    case "test-planning":
+      return [
+        {
+          label:
+            artifactFileDiskName("technical-plan-testing") ??
+            "04-technical-plan-testing.md",
+          content: readArtifact(
+            cwd,
+            state.featureId,
+            state.featureSlug,
+            "technical-plan-testing",
+          ),
+          templateContent: readTemplate("artifact", "technical-plan-testing"),
+          optionalHeadings: OPTIONAL_HEADINGS["technical-plan-testing"] ?? [],
+        },
+      ];
+    case "impl-planning":
+      return [
+        {
+          label:
+            artifactFileDiskName("technical-plan-implementation") ??
+            "05-technical-plan-implementation.md",
+          content: readArtifact(
+            cwd,
+            state.featureId,
+            state.featureSlug,
+            "technical-plan-implementation",
+          ),
+          templateContent: readTemplate(
+            "artifact",
+            "technical-plan-implementation",
+          ),
+          optionalHeadings:
+            OPTIONAL_HEADINGS["technical-plan-implementation"] ?? [],
+        },
+      ];
+    default:
+      return [];
+  }
+}
+
+/**
+ * Deterministic approve-gate check for interactive artifact-producing steps.
+ * Runs immediately before `advanceTo` in `handleApprove`.
+ *
+ * Returns `"blocked"` when the workflow must NOT advance (hard block on
+ * missing/placeholder/AI-comment content, or the user cancelled at the
+ * missing-headings confirmation) — the caller must `return` without calling
+ * `advanceTo`. Returns `"proceed"` otherwise (clean artifact, or the user
+ * confirmed "Approve anyway" past a missing-headings warning, or the step
+ * doesn't produce a gated artifact at all).
+ */
+async function runApproveGate(
+  ctx: CmdCtx,
+  state: FeatureState,
+): Promise<"blocked" | "proceed"> {
+  const targets = artifactsForStep(ctx.cwd, state);
+  if (targets.length === 0) return "proceed";
+
+  const results = targets.map((target) => ({
+    target,
+    result: validateArtifactContent(
+      target.content,
+      target.templateContent,
+      target.optionalHeadings,
+    ),
+  }));
+
+  const blocked = results.filter(({ result }) => isHardBlocked(result));
+  if (blocked.length > 0) {
+    const detail = blocked
+      .map(({ target, result }) => describeHardBlock(target.label, result))
+      .join("\n");
+    ctx.ui.notify(
+      `Feature Engineer: approve blocked — fix the following before advancing:\n${detail}`,
+      "error",
+    );
+    return "blocked";
+  }
+
+  const withMissingHeadings = results.filter(
+    ({ result }) => result.missingHeadings.length > 0,
+  );
+  if (withMissingHeadings.length > 0) {
+    const detail = withMissingHeadings
+      .map(
+        ({ target, result }) =>
+          `${target.label}: missing headings: ${result.missingHeadings.join(", ")}`,
+      )
+      .join("\n");
+
+    if (!ctx.hasUI) {
+      // Match the established !ctx.hasUI convention elsewhere in this file
+      // (see promptConcernSeverity / promptReviewConcernsGate): pause rather
+      // than guess. An incomplete artifact must not silently advance in a
+      // headless/automation run.
+      ctx.ui.notify(
+        `Feature Engineer v${VERSION}: cannot resolve missing headings in non-interactive mode. Re-run /feature in TUI or RPC mode.\n${detail}`,
+        "error",
+      );
+      return "blocked";
+    }
+
+    ctx.ui.notify(`Feature Engineer: warning —\n${detail}`, "warning");
+    const choice = await ctx.ui.select("Advance anyway?", [
+      "Approve anyway",
+      "Cancel — let me fix it",
+    ]);
+    if (choice === undefined || choice.startsWith("Cancel")) {
+      ctx.ui.notify(
+        "Feature Engineer: approve cancelled. Fix the missing headings and re-run /feature approve.",
+        "info",
+      );
+      return "blocked";
+    }
+  }
+
+  return "proceed";
+}
+
+/** Renders a hard-block detail line naming the file and its specific issue(s). */
+function describeHardBlock(
+  label: string,
+  result: ArtifactValidationResult,
+): string {
+  if (result.missing) {
+    return `- ${label}: file is missing.`;
+  }
+  const issues: string[] = [];
+  if (result.placeholderLines.length > 0) {
+    issues.push(
+      `contains placeholder marker(s): ${result.placeholderLines.map((l) => `\`${l}\``).join(", ")}`,
+    );
+  }
+  if (result.aiCommentLines.length > 0) {
+    issues.push(
+      `contains AI comment(s): ${result.aiCommentLines.map((l) => `\`${l}\``).join(", ")}`,
+    );
+  }
+  return `- ${label}: ${issues.join("; ")}`;
 }
 
 /**
@@ -321,6 +565,44 @@ async function runImplBuilderWithRecovery(
   }
 }
 
+/**
+ * Resolves the feedback text for a `/feature reject` invocation.
+ *
+ * - If `feedback` is already provided (typed inline as `/feature reject <text>`),
+ *   returns it unchanged.
+ * - If null and the session is interactive, prompts via `ui.input` for the
+ *   feedback text. Returns `null` (having already notified the user) if the
+ *   input is cancelled (`undefined`) or left blank/whitespace-only — this
+ *   aborts the rejection, leaving the workflow state unchanged.
+ * - If null and non-interactive, notifies the existing error message
+ *   (unchanged behaviour for non-UI/automation modes) and returns `null`.
+ */
+async function resolveRejectFeedback(
+  ctx: CmdCtx,
+  feedback: string | null,
+): Promise<string | null> {
+  if (feedback !== null) return feedback;
+  if (!ctx.hasUI) {
+    ctx.ui.notify(
+      "Feature Engineer: /feature reject requires feedback. Try: /feature reject <your feedback>",
+      "error",
+    );
+    return null;
+  }
+  const input = await ctx.ui.input(
+    "Rejection feedback:",
+    "Describe what needs to change",
+  );
+  if (input === undefined || input.trim().length === 0) {
+    ctx.ui.notify(
+      "Feature Engineer: rejection cancelled — no feedback provided.",
+      "info",
+    );
+    return null;
+  }
+  return input.trim();
+}
+
 async function handleReject(ctx: CmdCtx, feedback: string | null): Promise<void> {
   if (currentState === null) {
     ctx.ui.notify(
@@ -343,18 +625,14 @@ async function handleReject(ctx: CmdCtx, feedback: string | null): Promise<void>
       );
       return;
     }
-    if (feedback === null) {
-      ctx.ui.notify(
-        "Feature Engineer: /feature reject requires feedback. Try: /feature reject <your feedback>",
-        "error",
-      );
-      return;
-    }
+    const resolvedFeedback = await resolveRejectFeedback(ctx, feedback);
+    if (resolvedFeedback === null) return;
     const updated: FeatureState = {
       ...currentState,
       step: "impl-planning",
-      rejectionFeedback: feedback,
+      rejectionFeedback: resolvedFeedback,
       implFailed: false,
+      reviewConcerns: undefined,
     };
     currentState = updated;
     await runImplPlanning(ctx, updated);
@@ -368,17 +646,12 @@ async function handleReject(ctx: CmdCtx, feedback: string | null): Promise<void>
     );
     return;
   }
-  if (feedback === null) {
-    ctx.ui.notify(
-      "Feature Engineer: /feature reject requires feedback. Try: /feature reject <your feedback>",
-      "error",
-    );
-    return;
-  }
+  const resolvedFeedback = await resolveRejectFeedback(ctx, feedback);
+  if (resolvedFeedback === null) return;
 
   const updated: FeatureState = {
     ...currentState,
-    rejectionFeedback: feedback,
+    rejectionFeedback: resolvedFeedback,
     // A new requirement draft will be written — bump the version so the
     // downstream Technical Design prompt references "requirement.md vN+1"
     // (per PRD §7.3). Only `req-gathering` rejections change the
@@ -386,6 +659,9 @@ async function handleReject(ctx: CmdCtx, feedback: string | null): Promise<void>
     // impl-planning re-draft later artifacts and the requirement is
     // unchanged, so the version stays.
     requirementVersion: nextRequirementVersion(currentState),
+    // Human rejection feedback is a distinct channel from review concerns
+    // (per the review-quality-loop spec) — always clear on reject.
+    reviewConcerns: undefined,
   };
   currentState = updated;
   await runSkillForStep(ctx, updated);
@@ -560,9 +836,16 @@ async function promptConcernSeverity(ctx: CmdCtx, state: FeatureState): Promise<
     return;
   }
 
+  const concerns = readConcernsContent(state);
+  const counts = parseConcernCounts(concerns);
+  const recommended = counts.recommendedSeverity;
+  const other: Severity = recommended === "ARCHITECTURAL" ? "MINOR" : "ARCHITECTURAL";
+
+  ctx.ui.notify(`Feature Engineer: ${formatConcernSummary(counts)}`, "info");
+
   const choice = await ctx.ui.select(
     "Review concerns found. Severity?",
-    ["ARCHITECTURAL", "MINOR"],
+    [`${recommended} (recommended)`, other],
   );
   if (choice === undefined) {
     ctx.ui.notify(
@@ -571,22 +854,39 @@ async function promptConcernSeverity(ctx: CmdCtx, state: FeatureState): Promise<
     );
     return;
   }
-  if (!isValidSeverity(choice)) {
+  // The recommended option is displayed with a " (recommended)" UI suffix
+  // (see the `select` call above); strip it to recover the underlying
+  // `Severity` value before validating.
+  const cleaned = choice.replace(/\s*\(recommended\)$/, "");
+  if (!isValidSeverity(cleaned)) {
     ctx.ui.notify(`Feature Engineer: invalid severity "${choice}".`, "error");
     return;
   }
-  const severity: Severity = choice;
-  // Clear the pending-severity marker on the state going forward.
-  currentState = { ...state, rejectionFeedback: undefined };
-  await advanceTo(ctx, SEVERITY_NEXT_STEP[severity]);
+  const severity: Severity = cleaned;
+  const nextStep = SEVERITY_NEXT_STEP[severity];
+  // Bypass `advanceTo` here — it unconditionally clears `reviewConcerns`,
+  // which would defeat the purpose of routing them into the next skill.
+  // This mirrors how `handleReject` builds `updated` directly and calls
+  // `runSkillForStep` for its own state-carrying re-runs.
+  const updated: FeatureState = {
+    ...state,
+    step: nextStep,
+    rejectionFeedback: undefined,
+    reviewConcerns: concerns ?? undefined,
+  };
+  currentState = updated;
+  await runSkillForStep(ctx, updated);
 }
 
 /**
  * Human-in-the-loop gate after Review Completion.
  *
- * The orchestrator does NOT auto-decide based on file content. The user
- * is shown a summary of `06-review-concerns-to-address.md` (line count of
- * non-empty concern entries) and explicitly chooses:
+ * This gate is only reached when `06-review-concerns-to-address.md` has at
+ * least one concern — the caller in `runSkillForStep`'s "review-completion"
+ * case auto-advances straight to `github` (skipping this gate entirely)
+ * when the parsed concern count is zero. When this gate IS shown, the user
+ * sees a summary of the concerns file (line count of non-empty concern
+ * entries) and explicitly chooses:
  *
  *   - "Address concerns" → advance to `concern-severity` (which itself
  *      prompts for ARCHITECTURAL/MINOR and routes to tech-design or
@@ -643,21 +943,7 @@ async function promptReviewConcernsGate(ctx: CmdCtx, state: FeatureState): Promi
  */
 function summariseConcerns(content: string | null): string {
   if (content === null) return "no concerns file found.";
-  const lines = content.split(/\r?\n/);
-  let concerns = 0;
-  let noConcernsLines = 0;
-  for (const line of lines) {
-    const t = line.trim();
-    if (t.length === 0) continue;
-    if (t === "- No concerns.") {
-      noConcernsLines += 1;
-      continue;
-    }
-    if (t.startsWith("- ") || t.startsWith("* ")) concerns += 1;
-  }
-  if (concerns === 0 && noConcernsLines === 0) return "no concerns recorded.";
-  if (concerns === 0) return `${noConcernsLines} section(s) explicitly marked as no concerns.`;
-  return `${concerns} concern(s) across ${noConcernsLines + concerns} section(s).`;
+  return formatConcernSummary(parseConcernCounts(content));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -673,6 +959,7 @@ async function advanceTo(ctx: CmdCtx, nextStep: FeatureStep): Promise<void> {
     ...currentState,
     step: nextStep,
     rejectionFeedback: undefined,
+    reviewConcerns: undefined,
   };
   currentState = updated;
 
@@ -730,15 +1017,24 @@ async function runSkillForStep(ctx: CmdCtx, state: FeatureState): Promise<void> 
       await runImplBuilderWithRecovery(ctx, state);
       return;
     case "review-completion":
-      // After review: hand the user the human-in-the-loop Review Concerns?
-      // gate. The user inspects 06-review-concerns-to-address.md on disk and
-      // explicitly chooses whether to advance to GitHub or proceed to the
-      // Concern Severity classification. The orchestrator does NOT
-      // auto-decide based on file content.
+      // After review: parse 06-review-concerns-to-address.md. If it has
+      // zero concerns, auto-advance straight to GitHub (the gate is
+      // skipped). Otherwise hand the user the human-in-the-loop Review
+      // Concerns? gate, where they explicitly choose whether to advance to
+      // GitHub or proceed to the Concern Severity classification.
       await runReviewCompletion(ctx, state, {
         onComplete: async (completedState) => {
+          const concerns = readConcernsContent(completedState);
+          const counts = parseConcernCounts(concerns);
+          if (counts.total === 0) {
+            ctx.ui.notify(
+              `Feature Engineer: review clean for ${padIdFor(completedState.featureId)} — ${completedState.featureSlug}. Advancing to GitHub.`,
+              "info",
+            );
+            await advanceTo(ctx, "github");
+            return;
+          }
           await advanceTo(ctx, "review-concerns-gate");
-          void completedState; // state is read inside the gate handler.
         },
       });
       return;
@@ -785,8 +1081,13 @@ function safeReaddir(cwd: string): string[] {
 
 /**
  * Reads the review-concerns file for a completed review pass. Returns null
- * if the file is missing or unreadable. The orchestrator uses this to
- * decide between github (no concerns) and concern-severity (concerns).
+ * if the file is missing or unreadable. The "review-completion" onComplete
+ * handler in `runSkillForStep` uses the parsed count of this content to
+ * decide between `github` (zero concerns — auto-advance, gate skipped) and
+ * `review-concerns-gate` (one or more concerns — user is shown the gate and
+ * explicitly chooses). `concern-severity` is not decided directly from this
+ * content; it's only reached after the user picks "Address concerns" at
+ * that gate.
  */
 function readConcernsContent(state: FeatureState): string | null {
   // Use the prefix-aware filename so this stays in sync with the path

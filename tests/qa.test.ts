@@ -6,11 +6,25 @@ import {
   type QACommands,
   type QARunResult,
   aggregateQAResults,
+  checkRedPhase,
+  formatCommandOutput,
   formatFailureFeedback,
   parseQAStaticTools,
   runQACommands,
   summariseResults,
 } from "@/qa";
+
+const NO_COMMANDS: QACommands = {
+  test: null,
+  testCoverageThreshold: null,
+  typecheck: null,
+  lint: null,
+  lintFix: null,
+  formatCheck: null,
+  formatFix: null,
+  importSort: null,
+  build: null,
+};
 
 describe("qa", () => {
   describe("parseQAStaticTools", () => {
@@ -175,6 +189,33 @@ Coverage threshold: 75%
     });
   });
 
+  describe("formatCommandOutput", () => {
+    it("renders a 0-exit-code result's actual output, not a generic pass message", () => {
+      const result: QARunResult = {
+        command: "npm test",
+        exitCode: 0,
+        stdout: "all tests passed output",
+        stderr: "",
+      };
+      const out = formatCommandOutput(result);
+      expect(out).toContain("all tests passed output");
+      expect(out).not.toContain("All QA tools passed.");
+      expect(out).toContain("npm test");
+    });
+
+    it("truncates very long output", () => {
+      const long = "y".repeat(8000);
+      const result: QARunResult = {
+        command: "a",
+        exitCode: 0,
+        stdout: long,
+        stderr: "",
+      };
+      const out = formatCommandOutput(result);
+      expect(out).toContain("[truncated");
+    });
+  });
+
   describe("runQACommands", () => {
     it("runs a passing command and reports exitCode 0", () => {
       const dir = mkdtempSync(join(tmpdir(), "fe-qa-"));
@@ -240,6 +281,110 @@ Coverage threshold: 75%
         build: null,
       });
       expect(out[0]?.stdout).toContain("hello-qa-test");
+    });
+  });
+
+  describe("checkRedPhase", () => {
+    it("returns null when typecheck passes and tests fail (correct red phase)", () => {
+      const dir = mkdtempSync(join(tmpdir(), "fe-redphase-"));
+      const violation = checkRedPhase(dir, {
+        ...NO_COMMANDS,
+        typecheck: "true",
+        test: "false",
+      });
+      expect(violation).toBeNull();
+    });
+
+    it("returns null when neither typecheck nor test is configured", () => {
+      const dir = mkdtempSync(join(tmpdir(), "fe-redphase-"));
+      const violation = checkRedPhase(dir, NO_COMMANDS);
+      expect(violation).toBeNull();
+    });
+
+    it("reports typecheck-failed when the type-checker exits non-zero", () => {
+      const dir = mkdtempSync(join(tmpdir(), "fe-redphase-"));
+      const violation = checkRedPhase(dir, {
+        ...NO_COMMANDS,
+        typecheck: "false",
+        test: "false",
+      });
+      expect(violation?.kind).toBe("typecheck-failed");
+    });
+
+    it("reports tests-passed when the test runner exits zero", () => {
+      const dir = mkdtempSync(join(tmpdir(), "fe-redphase-"));
+      const violation = checkRedPhase(dir, {
+        ...NO_COMMANDS,
+        typecheck: "true",
+        test: "true",
+      });
+      expect(violation?.kind).toBe("tests-passed");
+    });
+
+    it("checks typecheck before test, reporting typecheck-failed even if tests also pass", () => {
+      const dir = mkdtempSync(join(tmpdir(), "fe-redphase-"));
+      const violation = checkRedPhase(dir, {
+        ...NO_COMMANDS,
+        typecheck: "false",
+        test: "true",
+      });
+      expect(violation?.kind).toBe("typecheck-failed");
+    });
+
+    it("skips the typecheck check when not configured, and still checks tests", () => {
+      const dir = mkdtempSync(join(tmpdir(), "fe-redphase-"));
+      const violation = checkRedPhase(dir, {
+        ...NO_COMMANDS,
+        test: "true",
+      });
+      expect(violation?.kind).toBe("tests-passed");
+    });
+
+    it("skips the test check when not configured, and still checks typecheck", () => {
+      const dir = mkdtempSync(join(tmpdir(), "fe-redphase-"));
+      const violation = checkRedPhase(dir, {
+        ...NO_COMMANDS,
+        typecheck: "false",
+      });
+      expect(violation?.kind).toBe("typecheck-failed");
+    });
+
+    it("does NOT report tests-passed when enforceTestsMustFail is false (ARCH-reloop, implementation already exists)", () => {
+      const dir = mkdtempSync(join(tmpdir(), "fe-redphase-"));
+      const violation = checkRedPhase(
+        dir,
+        {
+          ...NO_COMMANDS,
+          typecheck: "true",
+          test: "true",
+        },
+        { enforceTestsMustFail: false },
+      );
+      expect(violation).toBeNull();
+    });
+
+    it("still reports typecheck-failed when enforceTestsMustFail is false", () => {
+      const dir = mkdtempSync(join(tmpdir(), "fe-redphase-"));
+      const violation = checkRedPhase(
+        dir,
+        {
+          ...NO_COMMANDS,
+          typecheck: "false",
+          test: "true",
+        },
+        { enforceTestsMustFail: false },
+      );
+      expect(violation?.kind).toBe("typecheck-failed");
+    });
+
+    it("still reports tests-passed by default (enforceTestsMustFail unset) — regression guard for first-cycle behaviour", () => {
+      const dir = mkdtempSync(join(tmpdir(), "fe-redphase-"));
+      const violation = checkRedPhase(dir, {
+        ...NO_COMMANDS,
+        typecheck: "true",
+        test: "true",
+      });
+      expect(violation?.kind).toBe("tests-passed");
     });
   });
 });

@@ -111,6 +111,22 @@ export interface FeatureState {
    * or `/feature approve` to retry the impl as-is."
    */
   implFailed?: boolean;
+  /**
+   * Outstanding review concerns to address, set by `promptConcernSeverity`
+   * in `index.ts` immediately before routing to `tech-design` or
+   * `impl-builder` after the user picks a MINOR/ARCHITECTURAL severity at
+   * the concern-severity gate. The routed skill's prompt builder(s)
+   * (`buildImplBuilderPrompt`, `buildTechDesignPhase1Prompt`/`Phase2Prompt`)
+   * consume this to render a `## Review Concerns To Address` block.
+   *
+   * Survives exactly the one skill invocation it was set for: it is
+   * always cleared (`undefined`) on any subsequent `/feature reject`
+   * (per the review-quality-loop spec's "human rejection feedback remains
+   * distinct" requirement — the `rejectionFeedback` and `reviewConcerns`
+   * channels never coexist in a single prompt) and on any generic forward
+   * advance via `advanceTo`.
+   */
+  reviewConcerns?: string;
 }
 
 /**
@@ -187,8 +203,11 @@ export function isUiStep(step: FeatureStep): boolean {
 }
 
 /**
- * Interactive skills: user reviews the generated document before advancing.
- * The skill prompt instructs the LLM to use `ui.confirm()` to gate progression.
+ * Interactive skills: user reviews the generated document on disk before
+ * advancing. The user types `/feature approve` (which also runs the
+ * deterministic approve-gate validation — see `approve-gate.ts`) or
+ * `/feature reject <feedback>` to regenerate. The LLM never gates its own
+ * progression — it writes the artifact and ends its turn.
  */
 const INTERACTIVE_STEPS: ReadonlySet<FeatureStep> = new Set([
   "analyse-codebase",

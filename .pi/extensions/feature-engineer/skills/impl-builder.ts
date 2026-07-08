@@ -98,6 +98,7 @@ export async function runImplBuilder(
     qaEngineering,
     state,
     maxRetries,
+    reviewConcerns: state.reviewConcerns ?? null,
   });
 
   const finalCompactInstructions = `Summarise only: Implementation Builder finished for feature ${state.featureSlug}. Preserve the list of completed tasks, the commit hashes, and the QA result (pass/fail). The next session will start from this summary.`;
@@ -123,6 +124,7 @@ export async function runImplBuilder(
           maxAttempts: maxRetries,
           failureFeedback: formatFailureFeedback(lastFailures ?? []),
           implPlan,
+          reviewConcerns: state.reviewConcerns ?? null,
         })
       : prompt;
 

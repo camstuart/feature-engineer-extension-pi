@@ -248,7 +248,8 @@ export async function driveIntermediateSteps(
 ): Promise<void> {
   for (let i = 0; i < steps.length; i += 1) {
     const step = steps[i]!;
-    await sCtx.sendUserMessage(step.prompt);
+    const resolvedPrompt = typeof step.prompt === "function" ? step.prompt() : step.prompt;
+    await sCtx.sendUserMessage(resolvedPrompt);
     await sCtx.waitForIdle();
     if (i < steps.length - 1 && step.compactInstructions !== undefined) {
       await runCompaction(sCtx, step.compactInstructions);
@@ -275,8 +276,19 @@ export function runCompaction(sCtx: SkillSessionContext, customInstructions: str
 }
 
 export interface IntermediateStep {
-  /** Prompt text to send to the LLM for this step. */
-  prompt: string;
+  /**
+   * Prompt text to send to the LLM for this step.
+   *
+   * May be a plain string, or a zero-arg function returning a string. The
+   * function form is resolved immediately before `sendUserMessage` is
+   * called for this step (in `driveIntermediateSteps`), NOT when the
+   * `steps` array is constructed. Use this for prompts that must reflect
+   * fresh file/state content as of send time — e.g. a review pass whose
+   * prompt embeds a concerns file that an earlier pass may have just
+   * appended to. Plain string prompts are sent unchanged, preserving
+   * existing behavior.
+   */
+  prompt: string | (() => string);
   /**
    * Compaction instructions applied AFTER this step completes and BEFORE
    * the next step begins. Ignored for the last step (nothing follows) UNLESS

@@ -14,17 +14,14 @@ const BASE_STATE = {
 
 describe("prompts/review-completion", () => {
   describe("REVIEW_PASSES", () => {
-    it("contains exactly 8 review passes covering the required areas", () => {
-      expect(REVIEW_PASSES).toHaveLength(8);
+    it("contains exactly 5 review passes covering the required areas", () => {
+      expect(REVIEW_PASSES).toHaveLength(5);
       const ids = REVIEW_PASSES.map((p) => p.id);
       expect(ids).toEqual([
-        "actors-coverage",
+        "requirements-coverage",
         "file-structure",
         "tech-stack",
-        "static-qa",
         "engineering-principles",
-        "git-strategy",
-        "requirements-coverage",
         "architecture-conformance",
       ]);
     });
@@ -41,12 +38,23 @@ describe("prompts/review-completion", () => {
         expect(pass.instructions.length).toBeGreaterThan(20);
       }
     });
+
+    it("requirements-coverage absorbs actor/user-story coverage from the former actors-coverage pass", () => {
+      const pass = REVIEW_PASSES.find((p) => p.id === "requirements-coverage")!;
+      expect(pass.files).toContain("01-actors.md");
+      expect(pass.files).toContain("01-requirement.md");
+      expect(pass.question).toMatch(/actor/i);
+      expect(pass.question).toMatch(/user stor/i);
+      expect(pass.question).toMatch(/requirement/i);
+      expect(pass.instructions).toMatch(/actor/i);
+      expect(pass.instructions).toMatch(/requirement/i);
+    });
   });
 
   describe("buildReviewPassPrompt", () => {
-    it("renders an actors-coverage pass with actors + requirement files", () => {
+    it("renders a requirements-coverage pass with actors + requirement files", () => {
       const prompt = buildReviewPassPrompt({
-        pass: REVIEW_PASSES.find((p) => p.id === "actors-coverage")!,
+        pass: REVIEW_PASSES.find((p) => p.id === "requirements-coverage")!,
         fileContents: {
           "01-actors.md": "# Actors\n\nUser, Admin",
           "01-requirement.md": "# Requirement\n\nstuff",
@@ -57,7 +65,7 @@ describe("prompts/review-completion", () => {
         template: "# Review Concerns\n<!-- AI: ... -->",
       });
 
-      expect(prompt).toContain("actors-coverage");
+      expect(prompt).toContain("requirements-coverage");
       expect(prompt).toContain("01-actors.md");
       expect(prompt).toContain("01-requirement.md");
       expect(prompt).toContain("User, Admin");
@@ -107,7 +115,7 @@ describe("prompts/review-completion", () => {
 
     it("handles missing file contents gracefully", () => {
       const prompt = buildReviewPassPrompt({
-        pass: REVIEW_PASSES.find((p) => p.id === "actors-coverage")!,
+        pass: REVIEW_PASSES.find((p) => p.id === "requirements-coverage")!,
         fileContents: {},
         priorConcerns: null,
         state: BASE_STATE,
@@ -115,15 +123,15 @@ describe("prompts/review-completion", () => {
         template: "t",
       });
 
-      expect(prompt).toContain("actors.md");
+      expect(prompt).toContain("01-requirement.md");
       expect(prompt).toMatch(/missing/i);
     });
 
-    it("includes prior concerns block when priorConcerns is non-null (passes 2-8)", () => {
+    it("includes prior concerns block when priorConcerns is non-null (passes 2-5)", () => {
       const prompt = buildReviewPassPrompt({
         pass: REVIEW_PASSES[0]!,
         fileContents: { "actors.md": "x" },
-        priorConcerns: "## Actors Coverage\n- [MAJOR] missing actor X",
+        priorConcerns: "## Requirements Coverage\n- [MINOR] missing actor X",
         state: BASE_STATE,
         reviewConcernsPath: "/x/r.md",
         template: "t",
@@ -146,7 +154,7 @@ describe("prompts/review-completion", () => {
       expect(prompt).not.toContain("Prior Review Concerns");
     });
 
-    it("specifies a concrete concern format (severity + observation + fix)", () => {
+    it("specifies the ARCH/MINOR concern format (tag + observation + fix) and no legacy severity tags", () => {
       const prompt = buildReviewPassPrompt({
         pass: REVIEW_PASSES[0]!,
         fileContents: { "actors.md": "x" },
@@ -157,10 +165,15 @@ describe("prompts/review-completion", () => {
       });
 
       expect(prompt).toContain("Concern Format");
-      expect(prompt).toMatch(/\[<severity>\]/);
+      expect(prompt).toMatch(/\[ARCH\|MINOR\]/);
+      expect(prompt).toContain("ARCH");
+      expect(prompt).toContain("MINOR");
+      expect(prompt).not.toMatch(/\bBLOCKER\b/);
+      expect(prompt).not.toMatch(/\bMAJOR\b/);
+      expect(prompt).not.toMatch(/\bNIT\b/);
     });
 
-    it("explains what the orchestrator does after all 8 passes", () => {
+    it("states the single No-concerns convention without a contradictory 'leave empty' instruction", () => {
       const prompt = buildReviewPassPrompt({
         pass: REVIEW_PASSES[0]!,
         fileContents: { "actors.md": "x" },
@@ -170,22 +183,34 @@ describe("prompts/review-completion", () => {
         template: "t",
       });
 
-      // P1.2 fix: the prompt explains the real orchestrator behaviour, not
-      // a fake "the final pass will summarise" claim.
+      expect(prompt).toContain("- No concerns.");
+      expect(prompt).not.toMatch(/leave a heading'?s body empty/i);
+    });
+
+    it("explains the real routing after all 5 passes: clean auto-advances, concerns hit a user gate", () => {
+      const prompt = buildReviewPassPrompt({
+        pass: REVIEW_PASSES[0]!,
+        fileContents: { "actors.md": "x" },
+        priorConcerns: null,
+        state: BASE_STATE,
+        reviewConcernsPath: "/x/r.md",
+        template: "t",
+      });
+
       expect(prompt).toContain("What Happens Next");
       expect(prompt).toMatch(/orchestrator/i);
+      expect(prompt).toMatch(/auto-advance/i);
+      expect(prompt).toMatch(/GitHub/);
+      expect(prompt).toMatch(/user gate|user picks|recommended route/i);
     });
   });
 
   it("typecheck: every ReviewPassId maps to a defined pass", () => {
     const ids: ReviewPassId[] = [
-      "actors-coverage",
+      "requirements-coverage",
       "file-structure",
       "tech-stack",
-      "static-qa",
       "engineering-principles",
-      "git-strategy",
-      "requirements-coverage",
       "architecture-conformance",
     ];
     for (const id of ids) {

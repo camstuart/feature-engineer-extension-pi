@@ -19,6 +19,7 @@ import {
   existingArtifactBlock,
   interactiveApprovalReminder,
   revisionFeedbackBlock,
+  reviewConcernsBlock,
   skillHeader,
   templatePopulationReminder,
 } from "./common.js";
@@ -34,6 +35,12 @@ export interface TechDesignPromptInputs {
   rejectionFeedback: string | null;
   outputPath: string;
   relevantComponentsPath: string;
+  /**
+   * Outstanding review concerns routed here by an ARCHITECTURAL
+   * severity-gate decision. Rendered as a `## Review Concerns To Address`
+   * block alongside the existing-architecture baseline.
+   */
+  reviewConcerns?: string | null;
 }
 
 export function buildTechDesignPhase1Prompt(inputs: TechDesignPromptInputs): string {
@@ -48,6 +55,7 @@ export function buildTechDesignPhase1Prompt(inputs: TechDesignPromptInputs): str
     rejectionFeedback,
     outputPath,
     relevantComponentsPath,
+    reviewConcerns,
   } = inputs;
   const isExisting = existingArchitecture !== null;
 
@@ -69,6 +77,7 @@ export function buildTechDesignPhase1Prompt(inputs: TechDesignPromptInputs): str
     ...codeBlock("05-qa-engineering.md", qaEngineering),
     ...existingArtifactBlock("Existing 03-technical-architecture.md (baseline)", existingArchitecture),
     ...revisionFeedbackBlock(rejectionFeedback),
+    ...reviewConcernsBlock(reviewConcerns),
     "",
     "## Output Template (for the FINAL architecture file, written in Phase 2)",
     "Read this now to understand what components Phase 2 will need to reference.",
@@ -115,6 +124,7 @@ export function buildTechDesignPhase2Prompt(inputs: TechDesignPromptInputs): str
     rejectionFeedback,
     outputPath,
     relevantComponentsPath,
+    reviewConcerns,
   } = inputs;
   const isExisting = existingArchitecture !== null;
   // The architecture template carries a `requirement.md v{{VERSION}}`
@@ -159,6 +169,7 @@ export function buildTechDesignPhase2Prompt(inputs: TechDesignPromptInputs): str
     ),
     ...existingArtifactBlock("Existing 03-technical-architecture.md (baseline)", existingArchitecture),
     ...revisionFeedbackBlock(rejectionFeedback),
+    ...reviewConcernsBlock(reviewConcerns),
     ...templatePopulationReminder(),
     "",
     "**PHASE 2 — Draft Architecture**",
@@ -166,7 +177,8 @@ export function buildTechDesignPhase2Prompt(inputs: TechDesignPromptInputs): str
     "1. Read the compacted inventory at the path above.",
     "2. For each section of the template, write content specific to this feature. Do not leave any section blank or filled with placeholder filler.",
     "3. Reference each reused component using its `path::Name` form so the Implementation phase can locate it with a single grep.",
-    "4. Run the self-check (in the approval-gate reminder below) before declaring done.",
+    "4. If review concerns are listed above, ensure your revised architecture resolves each one.",
+    "5. Run the self-check (in the approval-gate reminder below) before declaring done.",
     "",
     ...interactiveApprovalReminder("Architecture approved"),
   ];

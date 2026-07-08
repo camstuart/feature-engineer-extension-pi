@@ -1,12 +1,15 @@
 /**
- * File-reading helpers for the Feature Engineer extension.
+ * File-reading (and one file-lifecycle) helpers for the Feature Engineer
+ * extension.
  *
- * These functions wrap Node's fs to read project files in the shape the
- * prompt builders expect. They never throw — a missing or empty file is
- * reported as `null`.
+ * Most functions here wrap Node's fs to read project files in the shape
+ * the prompt builders expect. They never throw — a missing or empty file
+ * is reported as `null`. One exception, `rotateConcernsFileIfExists`, is a
+ * lifecycle helper: it renames a file rather than reading one, so that
+ * each review cycle starts from a clean slate.
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -19,6 +22,7 @@ import {
   configTemplatePath,
   artifactTemplatePath,
   featureDirPath,
+  reviewConcernsPath,
 } from "./paths.js";
 
 /** Returns the content of a file, or null if it is missing or whitespace-only. */
@@ -157,4 +161,32 @@ export function listExistingFeatures(cwd: string): ExistingFeatureSummary[] {
   }
   out.sort((a, b) => a.id - b.id);
   return out;
+}
+
+/**
+ * Rotates an existing `06-review-concerns-to-address.md` out of the way
+ * before a new review cycle starts, so that pass 1 always creates a fresh
+ * file and downstream parsing (gate summary, severity recommendation,
+ * routing) only ever sees the current cycle's concerns.
+ *
+ * The previous cycle's file is preserved — not deleted — as
+ * `06-review-concerns.v<N>.md`, where N is the lowest positive integer not
+ * already used in the feature directory. This keeps every past review
+ * cycle available as an audit trail while guaranteeing the active,
+ * unversioned filename always reflects only the in-progress cycle.
+ *
+ * No-op (no rename, no error) if the active concerns file does not exist —
+ * this is the normal case for a feature's first review cycle.
+ */
+export function rotateConcernsFileIfExists(cwd: string, id: number, slug: string): void {
+  const activePath = reviewConcernsPath(cwd, id, slug);
+  if (!existsSync(activePath)) return;
+
+  const dir = featureDirPath(cwd, id, slug);
+  let n = 1;
+  while (existsSync(join(dir, `06-review-concerns.v${n}.md`))) {
+    n += 1;
+  }
+  const versionedPath = join(dir, `06-review-concerns.v${n}.md`);
+  renameSync(activePath, versionedPath);
 }

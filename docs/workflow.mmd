@@ -24,19 +24,23 @@ flowchart TD
     tp -- "/feature approve" --> ip["impl-planning"]:::skill
     tp -. "/feature reject" .-> tp
 
-    ip -- "/feature approve" --> tb["test-builder"]:::automated
+    ip -- "/feature approve<br/>(creates/checks out<br/>feature branch)" --> tb["test-builder<br/>(red-phase gate)"]:::automated
     ip -. "/feature reject" .-> ip
 
-    tb --> ib["impl-builder<br/>(orchestrator-driven<br/>QA retry loop)"]:::automated
-    ib -- "QA passes" --> rc["review-completion<br/>(8 passes)"]:::automated
+    tb -- "type-check ok,<br/>tests fail" --> ib["impl-builder<br/>(orchestrator-driven<br/>QA retry loop)"]:::automated
+    tb -- "red phase violated<br/>2x" --> tbPaused{"Test Builder<br/>paused"}:::paused
+    tbPaused -- "/feature<br/>(retry)" --> tb
+
+    ib -- "QA passes" --> rc["review-completion<br/>(5 passes +<br/>deterministic git checks)"]:::automated
     ib -- "QA fails 3x" --> paused{"Impl Builder<br/>paused"}:::paused
     paused -- "/feature approve<br/>(retry as-is)" --> ib
     paused -- "/feature reject<br/>(→ impl-planning)" --> ip
 
-    rc --> concerns{"Review concerns?<br/>(human-in-the-loop)"}:::gate
-    concerns -- "no" --> gh["github"]:::automated
-    concerns -- "yes" --> severity{"Severity?"}:::gate
-    severity -- "ARCHITECTURAL" --> td
-    severity -- "MINOR" --> ib
+    rc -- "0 concerns" --> gh["github<br/>(push + PR only)"]:::automated
+    rc -- "≥1 concern" --> concerns{"Review concerns?<br/>(human-in-the-loop)"}:::gate
+    concerns -- "Skip" --> gh
+    concerns -- "Address" --> severity{"Severity?<br/>(recommended pre-selected)"}:::gate
+    severity -- "ARCHITECTURAL<br/>(concerns injected)" --> td
+    severity -- "MINOR<br/>(concerns injected)" --> ib
 
     gh --> done(["DONE"]):::terminal

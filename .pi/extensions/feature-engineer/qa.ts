@@ -157,10 +157,36 @@ export function summariseResults(results: readonly QARunResult[]): string {
 }
 
 /**
+ * Renders a single QA command's output as a markdown block, regardless of
+ * its exit code. Includes the command and the last 4 KB of combined
+ * stdout+stderr — enough to show the output without blowing up the prompt.
+ * Truncates with a `[truncated]` marker.
+ *
+ * Used directly by the red-phase check to show the LLM/user the observed
+ * output even when the "violation" is that a command exited 0 (e.g. tests
+ * unexpectedly passing) — {@link formatFailureFeedback} would filter that
+ * result out since it only renders non-zero exits.
+ */
+export function formatCommandOutput(result: QARunResult): string {
+  const lines: string[] = [`### ${result.command}`, "", "```"];
+  const combined = (result.stdout || "") + (result.stderr || "");
+  const max = 4096;
+  if (combined.length > max) {
+    lines.push(combined.slice(combined.length - max));
+    lines.push("[truncated to last 4 KB]");
+  } else {
+    lines.push(combined);
+  }
+  lines.push("```", "");
+  return lines.join("\n");
+}
+
+/**
  * Render the failed commands' output as a markdown block suitable for
- * feeding back to the LLM on a retry. Includes the command and the last
- * 4 KB of combined stdout+stderr — enough to show the failure without
- * blowing up the prompt. Truncates with a `[truncated]` marker.
+ * feeding back to the LLM on a retry. Filters to non-zero exit codes only —
+ * suitable for the Implementation Builder's QA suite, where only genuinely
+ * failed commands should be shown. Falls back to a generic "all passed"
+ * message when nothing survives the filter.
  */
 export function formatFailureFeedback(results: readonly QARunResult[]): string {
   const failures = results.filter((r) => r.exitCode !== 0);
@@ -170,16 +196,7 @@ export function formatFailureFeedback(results: readonly QARunResult[]): string {
     "",
   ];
   for (const f of failures) {
-    lines.push(`### ${f.command}`, "", "```");
-    const combined = (f.stdout || "") + (f.stderr || "");
-    const max = 4096;
-    if (combined.length > max) {
-      lines.push(combined.slice(combined.length - max));
-      lines.push("[truncated to last 4 KB]");
-    } else {
-      lines.push(combined);
-    }
-    lines.push("```", "");
+    lines.push(formatCommandOutput(f));
   }
   return lines.join("\n");
 }
@@ -223,6 +240,82 @@ export function runQACommands(
     out.push(runOne(cwd, command, timeoutMs));
   }
   return out;
+}
+
+/**
+ * A violation of the Test Builder's red-phase invariant, returned by
+ * {@link checkRedPhase}.
+ *
+ * - `typecheck-failed` — the configured type-check command exited non-zero.
+ *   Test files must parse and type-check cleanly; a type error means the
+ *   Test Builder wrote something broken (not a legitimate red-phase
+ *   failure).
+ * - `tests-passed` — the configured test command exited 0. Tests must fail
+ *   until the Implementation Builder writes the matching production code;
+ *   a passing suite here means the Test Builder wrote production code (or
+ *   a vacuous test) by mistake.
+ */
+export type RedPhaseViolation =
+  | { kind: "typecheck-failed"; result: QARunResult }
+  | { kind: "tests-passed"; result: QARunResult };
+
+export interface CheckRedPhaseOptions extends RunQAOptions {
+  /**
+   * Whether a passing test run (exit code 0) should be treated as a
+   * red-phase violation. Defaults to `true` — the standard TDD invariant
+   * that tests must fail before the implementation exists.
+   *
+   * Set this to `false` when an implementation from a PRIOR build cycle
+   * already exists on the branch — e.g. an `ARCHITECTURAL` review concern
+   * routed the workflow back through `tech-design → test-planning →
+   * impl-planning → test-builder` a second time, and this is not the
+   * feature's first pass through Test Builder. On that second pass, the
+   * revised/new tests may legitimately already pass against the existing
+   * implementation (the ARCH concern may have been about structure/reuse,
+   * not behaviour), so "tests must fail" is no longer a meaningful
+   * correctness signal and would otherwise trigger a spurious retry/pause.
+   * The type-check-must-pass requirement is unaffected by this flag and is
+   * always enforced, regardless of cycle.
+   */
+  enforceTestsMustFail?: boolean;
+}
+
+/**
+ * Verifies the Test Builder skill's red-phase invariant after it writes
+ * test files: the type-checker (if configured) must exit 0, and the test
+ * runner (if configured) must exit non-zero. Checks type-check first —
+ * a type error is reported before test results, since the test run is
+ * unreliable while the files don't even parse.
+ *
+ * Returns `null` when both invariants hold, or when neither command is
+ * configured in `04-qa-static-tools.md` (nothing to check). When
+ * `options.enforceTestsMustFail` is `false`, a passing test run is treated
+ * as satisfying the invariant rather than violating it (see
+ * {@link CheckRedPhaseOptions.enforceTestsMustFail}).
+ */
+export function checkRedPhase(
+  cwd: string,
+  commands: QACommands,
+  options: CheckRedPhaseOptions = {},
+): RedPhaseViolation | null {
+  const timeoutMs = options.timeoutMs ?? 120_000;
+  const enforceTestsMustFail = options.enforceTestsMustFail ?? true;
+
+  if (commands.typecheck !== null) {
+    const result = runOne(cwd, commands.typecheck, timeoutMs);
+    if (result.exitCode !== 0) {
+      return { kind: "typecheck-failed", result };
+    }
+  }
+
+  if (commands.test !== null) {
+    const result = runOne(cwd, commands.test, timeoutMs);
+    if (result.exitCode === 0 && enforceTestsMustFail) {
+      return { kind: "tests-passed", result };
+    }
+  }
+
+  return null;
 }
 
 function runOne(cwd: string, command: string, timeoutMs: number): QARunResult {

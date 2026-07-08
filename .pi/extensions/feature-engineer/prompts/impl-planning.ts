@@ -90,10 +90,9 @@ export function buildImplPlanningPrompt(inputs: ImplPlanningPromptInputs): strin
     "1. Walk through the test plan, architecture, and structure to enumerate every discrete task required to implement the feature.",
     "2. Order tasks by dependency: data layer → service layer → API → UI. Each task should be completable and verifiable in isolation.",
     "3. For each task, fill in the template fields: title, target file(s), tests it satisfies, description. The `Satisfies tests` line must use the exact `it(\"...\")` strings from the test plan.",
-    "4. Mark commit boundaries per `06-git-strategy.md`. Use `[CHECKPOINT]` to mark a task as a commit boundary, or `[INLINE]` to mark it as part of the previous commit's group. Place the marker at the end of the task description.",
-    "5. Identify commit checkpoints per `06-git-strategy.md` in the `## Commit Checkpoints` section.",
-    "6. For the `## Rollback Notes` section: if no tasks are risky or irreversible, omit the section entirely. Otherwise, list each risky task and the undo steps.",
-    "7. Write the document to the output path and run the self-check in the approval-gate reminder.",
+    "4. Identify commit checkpoints per `06-git-strategy.md` in the `## Commit Checkpoints` section.",
+    "5. For the `## Rollback Notes` section: if no tasks are risky or irreversible, omit the section entirely. Otherwise, list each risky task and the undo steps.",
+    "6. Write the document to the output path and run the self-check in the approval-gate reminder.",
     "",
     ...interactiveApprovalReminder("Implementation plan approved"),
   ];

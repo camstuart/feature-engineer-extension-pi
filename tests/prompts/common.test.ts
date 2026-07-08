@@ -5,6 +5,7 @@ import {
   exampleBlock,
   interactiveApprovalReminder,
   revisionFeedbackBlock,
+  reviewConcernsBlock,
   skillHeader,
   templatePopulationReminder,
 } from "@/prompts/common";
@@ -57,23 +58,23 @@ describe("prompts/common", () => {
   });
 
   describe("templatePopulationReminder", () => {
-    it("instructs to replace placeholders and remove AI comments", () => {
+    it("instructs to replace placeholders and remove AI comments, and mentions orchestrator validation", () => {
       const lines = templatePopulationReminder();
       const text = lines.join("\n");
       expect(text).toMatch(/\{\{placeholder\}\}/);
       expect(text).toMatch(/<!-- AI/);
       expect(text).toMatch(/Replace every/);
-      expect(text).toMatch(/Remove every/);
+      expect(text).toMatch(/orchestrator validates/i);
     });
   });
 
   describe("interactiveApprovalReminder", () => {
-    it("describes the self-check the LLM must run", () => {
+    it("notes that the orchestrator validates the artifact on approve", () => {
       const lines = interactiveApprovalReminder("X approved");
       const text = lines.join("\n");
-      expect(text).toContain("Self-check");
-      expect(text).toMatch(/\{\{placeholder\}\}/);
-      expect(text).toMatch(/<!-- AI/);
+      expect(text).toMatch(/orchestrator validates/i);
+      expect(text).toMatch(/\{\{placeholder\}\}|placeholders/i);
+      expect(text).toMatch(/<!-- AI|AI comments/i);
     });
 
     it("describes the /feature approve and /feature reject flow", () => {
@@ -119,6 +120,25 @@ describe("prompts/common", () => {
       const text = lines.join("\n");
       expect(text).toContain("## Revision Feedback");
       expect(text).toContain("Add offline mode coverage");
+    });
+  });
+
+  describe("reviewConcernsBlock", () => {
+    it("returns an empty array when concerns is null or undefined", () => {
+      expect(reviewConcernsBlock(null)).toEqual([]);
+      expect(reviewConcernsBlock(undefined)).toEqual([]);
+    });
+
+    it("returns an empty array when concerns is empty or whitespace", () => {
+      expect(reviewConcernsBlock("")).toEqual([]);
+      expect(reviewConcernsBlock("   ")).toEqual([]);
+    });
+
+    it("returns a labelled block when concerns are present", () => {
+      const lines = reviewConcernsBlock("The retry loop never terminates.");
+      const text = lines.join("\n");
+      expect(text).toContain("## Review Concerns To Address");
+      expect(text).toContain("The retry loop never terminates.");
     });
   });
 });

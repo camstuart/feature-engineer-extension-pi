@@ -57,6 +57,7 @@ export async function runTechDesign(
     rejectionFeedback: state.rejectionFeedback ?? null,
     outputPath: artifactPath(cwd, state.featureId, state.featureSlug, "technical-architecture"),
     relevantComponentsPath: relevantComponentsPath(cwd, state.featureId, state.featureSlug),
+    reviewConcerns: state.reviewConcerns ?? null,
   };
 
   const initialPrompt = buildTechDesignPhase1Prompt(inputs);

@@ -75,6 +75,30 @@ describe("prompts/impl-builder", () => {
     expect(prompt).toMatch(/--force/);
     expect(prompt).toMatch(/Never edit a test file/);
   });
+
+  it("defaults to the 'Begin with Task 1' framing when no review concerns are present", () => {
+    const prompt = buildImplBuilderPrompt(BASE_INPUTS);
+    expect(prompt).toContain("Begin with Task 1.");
+    expect(prompt).not.toContain("## Review Concerns To Address");
+  });
+
+  it("defaults to the 'Begin with Task 1' framing when reviewConcerns is null", () => {
+    const prompt = buildImplBuilderPrompt({ ...BASE_INPUTS, reviewConcerns: null });
+    expect(prompt).toContain("Begin with Task 1.");
+    expect(prompt).not.toContain("## Review Concerns To Address");
+  });
+
+  it("switches to concern-addressing framing when reviewConcerns is present", () => {
+    const prompt = buildImplBuilderPrompt({
+      ...BASE_INPUTS,
+      reviewConcerns: "The error handler swallows exceptions silently.",
+    });
+    expect(prompt).toContain("## Review Concerns To Address");
+    expect(prompt).toContain("The error handler swallows exceptions silently.");
+    expect(prompt).not.toContain("Begin with Task 1.");
+    expect(prompt).toContain("Begin by addressing the concerns above.");
+    expect(prompt).toMatch(/do NOT re-execute/i);
+  });
 });
 
 describe("prompts/impl-builder retry", () => {
@@ -112,5 +136,36 @@ describe("prompts/impl-builder retry", () => {
       implPlan: IMPL_PLAN,
     });
     expect(prompt).toMatch(/never edit the test/i);
+  });
+
+  it("keeps the generic QA-failure framing when reviewConcerns is absent", () => {
+    const prompt = buildImplBuilderRetryPrompt({
+      state: BASE_STATE,
+      attempt: 2,
+      maxAttempts: 3,
+      failureFeedback: "x",
+      implPlan: IMPL_PLAN,
+    });
+    expect(prompt).toContain(
+      "A previous attempt at implementing this feature left the QA suite failing.",
+    );
+    expect(prompt).not.toContain("## Review Concerns To Address");
+  });
+
+  it("threads reviewConcerns into the retry prompt and switches the framing", () => {
+    const prompt = buildImplBuilderRetryPrompt({
+      state: BASE_STATE,
+      attempt: 2,
+      maxAttempts: 3,
+      failureFeedback: "lint failed: 3 errors in foo.ts",
+      implPlan: IMPL_PLAN,
+      reviewConcerns: "The error handler swallows exceptions silently.",
+    });
+    expect(prompt).toContain("## Review Concerns To Address");
+    expect(prompt).toContain("The error handler swallows exceptions silently.");
+    expect(prompt).toContain(
+      "A previous attempt at fixing the review concerns below left the QA suite failing.",
+    );
+    expect(prompt).toMatch(/still addressing the concerns listed below/i);
   });
 });

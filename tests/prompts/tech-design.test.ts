@@ -65,6 +65,20 @@ describe("prompts/tech-design phase 1 (codebase scan)", () => {
     const prompt = buildTechDesignPhase1Prompt(BASE_INPUTS);
     expect(prompt).not.toMatch(/Architecture approved/i);
   });
+
+  it("does not include review concerns when absent", () => {
+    const prompt = buildTechDesignPhase1Prompt(BASE_INPUTS);
+    expect(prompt).not.toContain("## Review Concerns To Address");
+  });
+
+  it("includes review concerns when present", () => {
+    const prompt = buildTechDesignPhase1Prompt({
+      ...BASE_INPUTS,
+      reviewConcerns: "The caching layer bypasses the auth check.",
+    });
+    expect(prompt).toContain("## Review Concerns To Address");
+    expect(prompt).toContain("The caching layer bypasses the auth check.");
+  });
 });
 
 describe("prompts/tech-design phase 2 (architecture draft)", () => {
@@ -106,6 +120,20 @@ describe("prompts/tech-design phase 2 (architecture draft)", () => {
     const prompt = buildTechDesignPhase2Prompt({ ...BASE_INPUTS, rejectionFeedback: "missing error handling" });
     expect(prompt).toContain("Revision Feedback");
     expect(prompt).toContain("missing error handling");
+  });
+
+  it("does not include review concerns when absent", () => {
+    const prompt = buildTechDesignPhase2Prompt(BASE_INPUTS);
+    expect(prompt).not.toContain("## Review Concerns To Address");
+  });
+
+  it("includes review concerns when present", () => {
+    const prompt = buildTechDesignPhase2Prompt({
+      ...BASE_INPUTS,
+      reviewConcerns: "The caching layer bypasses the auth check.",
+    });
+    expect(prompt).toContain("## Review Concerns To Address");
+    expect(prompt).toContain("The caching layer bypasses the auth check.");
   });
 
   describe("{{VERSION}} placeholder handling (PRD §7.3)", () => {

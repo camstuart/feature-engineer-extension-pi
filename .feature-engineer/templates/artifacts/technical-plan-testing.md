@@ -27,13 +27,3 @@ Steps:
 
 ## Mock & Stub Strategy
 <!-- AI: What external dependencies need mocking and how -->
-
-## Static QA Assertions
-<!-- AI: List the static QA commands that must pass (from qa-static-tools.md).
-These are run by Implementation Builder after each task. -->
-
-- [ ] `{{test command}}`
-- [ ] `{{type check command}}`
-- [ ] `{{lint command}}`
-- [ ] `{{format check command}}`
-- [ ] Coverage ≥ {{threshold}}%

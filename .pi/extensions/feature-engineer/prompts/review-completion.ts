@@ -1,15 +1,19 @@
 /**
  * Review Completion skill prompt builder.
  *
- * The orchestrator runs 8 sequential review passes with deterministic
- * compaction between them. Each pass:
+ * The orchestrator runs 5 sequential LLM review passes with deterministic
+ * compaction between them, followed by the orchestrator's own deterministic
+ * git-strategy checks (branch naming, commit conventions — no LLM pass).
+ * Each LLM pass:
  *   1. Reviews a specific area of the implementation
  *   2. Appends concerns to `06-review-concerns-to-address.md` under a fixed
  *      section heading
  *   3. Ends its turn — the runner compacts context and starts the next pass
  *
- * The orchestrator (not the LLM) decides the next workflow step based on
- * whether the concerns file is empty after all 8 passes.
+ * The orchestrator (not the LLM) decides the next workflow step: a clean
+ * concerns file auto-advances to the GitHub step, while any concerns route
+ * the user to a gate with a recommended severity (ARCH if any `[ARCH]`
+ * concern is present, otherwise MINOR).
  */
 
 import type { FeatureState } from "../state.js";
@@ -20,13 +24,10 @@ import {
 } from "./common.js";
 
 export type ReviewPassId =
-  | "actors-coverage"
+  | "requirements-coverage"
   | "file-structure"
   | "tech-stack"
-  | "static-qa"
   | "engineering-principles"
-  | "git-strategy"
-  | "requirements-coverage"
   | "architecture-conformance";
 
 export interface ReviewPass {
@@ -42,13 +43,13 @@ export interface ReviewPass {
 
 export const REVIEW_PASSES: readonly ReviewPass[] = [
   {
-    id: "actors-coverage",
-    label: "Actors Coverage",
-    files: ["01-actors.md", "01-requirement.md"],
+    id: "requirements-coverage",
+    label: "Requirements Coverage",
+    files: ["01-requirement.md", "01-actors.md"],
     question:
-      "Does the implementation cover every user story in the requirement, broken down correctly for each actor in 01-actors.md? Are any actors or stories missing?",
+      "Is every functional and non-functional requirement in 01-requirement.md satisfied by the implementation? Separately, does the implementation cover every user story for every actor in 01-actors.md, broken down correctly per actor, and are any requirements, actors, or stories missing or under-implemented?",
     instructions:
-      "Cross-reference each user story in 01-requirement.md against the implementation surface (test plan, architecture, code). List any actor or story that is missing or under-implemented in the concerns file under the `## Actors Coverage` heading.",
+      "Enumerate every numbered requirement in 01-requirement.md and verify each is satisfied by a test or concrete code path. Separately, cross-reference each actor in 01-actors.md against its user stories and the implementation surface (test plan, architecture, code) to confirm every actor's stories are covered. Note any gap — whether a missing requirement, actor, or story — in the concerns file under the `## Requirements Coverage` heading.",
   },
   {
     id: "file-structure",
@@ -69,15 +70,6 @@ export const REVIEW_PASSES: readonly ReviewPass[] = [
       "Inspect dependencies in package manifests (or equivalent) and imports in the new code. Flag any library not listed in 03-tech-stack.md under `## Tech Stack Compliance`.",
   },
   {
-    id: "static-qa",
-    label: "Static QA",
-    files: ["04-qa-static-tools.md"],
-    question:
-      "Did the Implementation Builder run every static QA tool listed in 04-qa-static-tools.md, and did each pass? Is the coverage threshold met?",
-    instructions:
-      "Cross-reference the QA commands in 04-qa-static-tools.md against the implementation results. Note any tools that failed or thresholds that fell short under `## Static QA`.",
-  },
-  {
     id: "engineering-principles",
     label: "Engineering Principles",
     files: ["05-qa-engineering.md"],
@@ -85,24 +77,6 @@ export const REVIEW_PASSES: readonly ReviewPass[] = [
       "Does the code follow the engineering principles in 05-qa-engineering.md (reuse, naming, error handling, etc.)? Any clear violations?",
     instructions:
       "Sample several new files and check each principle listed in 05-qa-engineering.md. Document any concrete violations under `## Engineering Principles`.",
-  },
-  {
-    id: "git-strategy",
-    label: "Git Strategy",
-    files: ["06-git-strategy.md"],
-    question:
-      "Were commits made per the 06-git-strategy.md conventions (branch naming, commit message format, frequency, PR labels)?",
-    instructions:
-      "Inspect the recent git history. Compare branch names, commit messages, and grouping against 06-git-strategy.md. Flag deviations under `## Git Strategy`.",
-  },
-  {
-    id: "requirements-coverage",
-    label: "Requirements Coverage",
-    files: ["01-requirement.md"],
-    question:
-      "Is every functional and non-functional requirement in 01-requirement.md satisfied by the implementation?",
-    instructions:
-      "Enumerate every numbered requirement. Verify each is satisfied by a test or concrete code path. Note any gap under `## Requirements Coverage`.",
   },
   {
     id: "architecture-conformance",
@@ -151,7 +125,7 @@ export function buildReviewPassPrompt(inputs: ReviewPassPromptInputs): string {
     ...priorConcernsBlock(priorConcerns),
     "",
     "## Output Template",
-    "Append any concerns you find under the matching heading in `06-review-concerns-to-address.md`. Leave a heading's body empty (no text) if you find no concerns in that area — do not delete the heading.",
+    "Append any concerns you find under the matching heading in `06-review-concerns-to-address.md`, using the format below. Do not delete the heading.",
     ...codeBlock("Template: 06-review-concerns-to-address.md", template),
     ...templatePopulationReminder(),
     "",
@@ -163,10 +137,13 @@ export function buildReviewPassPrompt(inputs: ReviewPassPromptInputs): string {
     "Format each concern as a markdown bullet:",
     "",
     "```",
-    "- [<severity>] <one-sentence observation> → <one-sentence suggested fix>",
+    "- [ARCH|MINOR] <one-sentence observation> → <one-sentence suggested fix>",
     "```",
     "",
-    "Where `<severity>` is one of `BLOCKER`, `MAJOR`, `MINOR`, or `NIT`. Use `BLOCKER` sparingly — only for issues that prevent the workflow from advancing (e.g. a missing test, a broken build, an unrecoverable error).",
+    "Where the tag is either `ARCH` or `MINOR`:",
+    "",
+    "- `ARCH` — an architectural or structural problem that requires returning to technical design (e.g. a component boundary is wrong, a chosen data structure can't satisfy the requirement, a pattern from 03-technical-architecture.md was fundamentally not followed).",
+    "- `MINOR` — an issue that can be fixed directly in the implementation without revisiting the design (e.g. a missing edge case, a naming inconsistency, an incomplete test).",
     "",
     "If you find no concerns in this area, append a single line:",
     "",
@@ -183,10 +160,10 @@ export function buildReviewPassPrompt(inputs: ReviewPassPromptInputs): string {
     "",
     "## What Happens Next",
     "",
-    "The orchestrator will run all 8 review passes. After the last pass, the orchestrator reads `06-review-concerns-to-address.md` itself:",
+    "The orchestrator runs all 5 LLM review passes, then its own deterministic git-strategy checks (branch naming, commit conventions) directly into the `## Git Strategy` heading — no LLM pass handles that. After that, the orchestrator reads `06-review-concerns-to-address.md` itself:",
     "",
-    "- If every heading is empty (or contains only `- No concerns.`), the workflow advances to the GitHub step.",
-    "- If any heading has a concrete concern, the workflow asks the user to choose a severity (ARCHITECTURAL or MINOR) and re-runs the appropriate earlier phase.",
+    "- If every heading contains only `- No concerns.`, the review is clean and the workflow auto-advances to the GitHub step with a notification — no user action needed.",
+    "- If any heading has a concrete concern, the workflow stops at a user gate showing the concern count and a recommended route: ARCHITECTURAL if any `[ARCH]` concern is present, otherwise MINOR. The user picks ARCHITECTURAL (back to tech-design) or MINOR (back to impl-builder), and that skill is given the outstanding concerns to address.",
   ];
 
   return lines.join("\n");
