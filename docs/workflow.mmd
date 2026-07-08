@@ -12,7 +12,7 @@ flowchart TD
     initCheck -- "yes" --> newExisting
 
     newExisting -- "new" --> mode["requirement mode<br/>direct / vague"]:::gate
-    newExisting -- "existing" --> req
+    newExisting -- "existing" --> mode
     mode --> req["req-gathering"]:::skill
 
     req -- "/feature approve" --> td["tech-design<br/>(2-phase)"]:::skill

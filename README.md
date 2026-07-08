@@ -5,6 +5,98 @@ orchestrates requirements gathering through to git commit, with user approval at
 every design phase and aggressive context management to keep each LLM session
 minimal.
 
+## User Guide
+
+Use this extension from a Pi session in the project you want to work on.
+
+```bash
+pi
+```
+
+Then run:
+
+```text
+/feature
+```
+
+The extension resumes the current Feature Engineer workflow if one exists. If
+the project has not been initialised yet, `/feature` starts the init flow.
+
+### Init
+
+Init is the first `/feature` run in a project that does not already have the
+Feature Engineer config files. The agent scans the repo, drafts the project
+config, writes the files under `.feature-engineer/`, then stops for review.
+
+Init creates these project-level artifacts:
+
+```text
+.feature-engineer/01-actors.md           # users, systems, roles, external actors
+.feature-engineer/02-structure.md        # repo layout and where new code belongs
+.feature-engineer/03-tech-stack.md       # frameworks, libraries, runtime choices
+.feature-engineer/04-qa-static-tools.md  # commands for typecheck, tests, lint, etc.
+.feature-engineer/05-qa-engineering.md   # engineering rules the agent must follow
+.feature-engineer/06-git-strategy.md     # branch, base branch, commit/PR conventions
+```
+
+The engineer must manage these files. Read them before approving init, edit
+anything wrong, and keep them current as the project changes. Later workflow
+steps treat these files as source-of-truth instructions.
+
+After reviewing the init artifacts:
+
+```text
+/feature approve
+```
+
+If the init artifacts are wrong and you want the agent to regenerate them:
+
+```text
+/feature reject <what needs to change>
+```
+
+### General Usage
+
+Start or resume:
+
+```text
+/feature
+```
+
+Check where you are:
+
+```text
+/feature status
+```
+
+Approve a paused design/artifact step after reading the file on disk:
+
+```text
+/feature approve
+```
+
+Reject a design/artifact step and ask the agent to revise it:
+
+```text
+/feature reject <what needs to change>
+```
+
+Normal feature work creates a per-feature directory:
+
+```text
+.feature-engineer/feature-NNN-slug/
+  01-requirement.md
+  02-relevant-components.md
+  03-technical-architecture.md
+  04-technical-plan-testing.md
+  05-technical-plan-implementation.md
+  06-review-concerns-to-address.md
+```
+
+Read and approve the requirement, architecture, test plan, and implementation
+plan before letting the automated build/review/publish steps run. If review
+finds concerns, choose whether to address them or skip to GitHub.
+
 ## Layout
 
 ```
@@ -31,7 +123,7 @@ minimal.
   config/                          ← actors, structure, tech-stack, qa-*, git-strategy
   artifacts/                       ← requirement, technical-architecture, technical-plan-*, review-concerns
 
-tests/                             ← vitest suite (493 tests, dev-only, not published)
+tests/                             ← vitest suite (501 tests, dev-only, not published)
 ```
 
 ## File naming convention
@@ -94,9 +186,9 @@ bundled defaults from inside the installed package into:
 ~/.pi/agent/feature-engineer/templates/
   config/   (actors.md, structure.md, tech-stack.md, qa-static-tools.md,
              qa-engineering.md, git-strategy.md)
-  artifacts/(01-requirement.md, 03-technical-architecture.md,
-             04-technical-plan-testing.md, 05-technical-plan-implementation.md,
-             06-review-concerns.md)
+  artifacts/(requirement.md, technical-architecture.md,
+             technical-plan-testing.md, technical-plan-implementation.md,
+             review-concerns.md)
 ```
 
 After the first run, a one-time notification appears:
@@ -179,7 +271,7 @@ node scripts/render-workflow.mjs
   - **`direct`** — the user has a clear, detailed requirement ready. The LLM captures it faithfully and asks at most 1-2 critical questions only when truly necessary. No discovery Q&A.
   - **`vague`** (default for backward compatibility) — the user has a rough idea. The LLM runs a structured discovery Q&A loop (problem, users, success criteria, user stories, goals, requirements, edge cases, open questions) before drafting. Each discovery round (success criteria, user stories, goals) asks for ONE confirmation covering everything gathered in that round, not one confirmation per item — the final whole-document summary confirmation (STEP 8) is unchanged.
   - The choice is persisted in the `fe-state` and preserved across `/feature reject` loops so a rejected requirement re-runs in the same mode.
-- **Interactive skills** (`analyse-codebase`, `req-gathering`, `test-planning`, `impl-planning`) write their artifact, end their turn, and wait. The user reviews the file on disk, then types `/feature approve` to advance or `/feature reject <feedback>` to regenerate. The orchestrator (not the LLM) drives the gate. If `<feedback>` is omitted in an interactive session, `/feature reject` opens an input prompt asking for it; cancelling or leaving it blank aborts the rejection with no state change. Non-interactive mode is unchanged — it still requires feedback inline and errors otherwise.
+- **Interactive skills** (`analyse-codebase`, `req-gathering`, `tech-design`, `test-planning`, `impl-planning`) write their artifact, end their turn, and wait. The user reviews the file on disk, then types `/feature approve` to advance or `/feature reject <feedback>` to regenerate. The orchestrator (not the LLM) drives the gate. If `<feedback>` is omitted in an interactive session, `/feature reject` opens an input prompt asking for it; cancelling or leaving it blank aborts the rejection with no state change. Non-interactive mode is unchanged — it still requires feedback inline and errors otherwise.
 - **Init stage is agent-driven.** When `/feature` is run on an uninitialised project, the analyse-codebase skill scans the codebase (file tree, package manifests, QA configs, git history), reads the supplied context documents (README, CLAUDE.md, AGENTS.md, PRD), and pre-fills the six config files from their templates. The LLM only asks the user about gaps it genuinely cannot infer (e.g. an empty repo with no context documents at all). The user reviews the populated files on disk, can edit anything they want, then types `/feature approve` to continue.
 - **Multi-phase skills** (`tech-design`) run two prompt phases in the same session with deterministic context compaction between them: phase 1 scans the codebase and writes `02-relevant-components.md`; phase 2 drafts `03-technical-architecture.md` from the compacted inventory.
 - **Multi-pass skills** (`review-completion`) run 5 review passes (`requirements-coverage` — which also covers per-actor user-story coverage, `file-structure`, `tech-stack`, `engineering-principles`, `architecture-conformance`) in a single session with compaction between passes. Each pass reads the concerns file *at the moment it runs* (not a snapshot frozen at session start), so it genuinely sees what earlier passes in the same cycle wrote. After the LLM passes finish, the orchestrator also runs deterministic git-strategy checks (current branch name vs. the configured pattern, commit existence, and — when a `Commit pattern:` line is configured — commit-subject format) and writes any findings into the same concerns file under `## Git Strategy`, tagged `[MINOR]`.
@@ -298,7 +390,7 @@ after any required wait.
 
 ```bash
 pnpm install
-pnpm test         # vitest, 493 unit tests across the pure-logic modules
+pnpm test         # vitest, 501 unit tests across the pure-logic modules
 pnpm typecheck    # strict tsc, zero errors
 ```
 
@@ -469,7 +561,7 @@ npm pack --dry-run
 pnpm pack --dry-run  # pnpm 9+
 ```
 
-You should see 45 files: extension source (incl. `seeding.ts` and
+You should see 50 files: extension source (incl. `seeding.ts` and
 `runner.ts`), templates, README, LICENSE, package.json. No tests, configs, or
 `node_modules/`.
 
@@ -580,12 +672,6 @@ pi                        # launch
 
 ## Future work
 
-- **QA loop orchestration.** The Implementation Builder prompt tells the LLM
-  to run the static QA tools itself; if a task is blocked after one
-  good-faith attempt, it surfaces the block. Moving QA execution into
-  `index.ts` (via `execFileSync` on each command from `qa-static-tools.md`,
-  with a re-prompt loop on failure) would make the retry budget deterministic
-  rather than prompt-driven.
 - **Per-project template overrides.** Today templates are global-only. A
   future iteration could let a project override individual templates at
   `.feature-engineer/templates/`, falling back to the global default when
